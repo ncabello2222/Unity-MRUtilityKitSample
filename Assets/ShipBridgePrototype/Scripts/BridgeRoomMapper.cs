@@ -54,12 +54,14 @@ namespace ShipBridgePrototype
         [SerializeField] private float gizmoArrowLength = 0.6f;
 
         private Transform _generatedRoot;
+        private ExteriorWorldRoot _exteriorWorldRoot;
         private readonly Dictionary<WallRole, MRUKAnchor> _classifiedWalls = new();
         private readonly List<(WallRole role, Vector3 center, Vector3 inward)> _gizmoWalls = new();
         private bool _mrukBound;
         private bool _passthroughWasEnabled;
 
         public Transform GeneratedRoot => _generatedRoot;
+        public ExteriorWorldRoot ExteriorWorld => _exteriorWorldRoot;
         public IReadOnlyDictionary<WallRole, MRUKAnchor> ClassifiedWalls => _classifiedWalls;
 
         private void OnEnable()
@@ -180,6 +182,7 @@ namespace ShipBridgePrototype
             }
 
             _generatedRoot = null;
+            _exteriorWorldRoot = null;
             _classifiedWalls.Clear();
             _gizmoWalls.Clear();
             ApplyPassthroughForExterior(true);
@@ -844,17 +847,23 @@ namespace ShipBridgePrototype
 
         private void CreateExteriorEnvironment(MRUKRoom room, Transform root)
         {
-            var exteriorRoot = new GameObject("Exterior").transform;
+            // Shell only: scenario content is loaded under ExteriorWorld by ExteriorScenarioLoader.
+            var exteriorGo = new GameObject("ExteriorWorld");
+            var exteriorRoot = exteriorGo.transform;
             exteriorRoot.SetParent(root, false);
+            _exteriorWorldRoot = exteriorGo.AddComponent<ExteriorWorldRoot>();
 
             var roomBounds = room.GetRoomBounds();
             var roomCenter = roomBounds.center;
             roomCenter.y = room.FloorAnchor != null ? room.FloorAnchor.transform.position.y : roomBounds.min.y;
 
+            var pivotGo = new GameObject("ShipMotionPivot");
+            pivotGo.transform.SetParent(root, false);
+            pivotGo.transform.position = roomCenter;
+
             var forward = Vector3.forward;
             if (_classifiedWalls.TryGetValue(WallRole.Front, out var front) && front != null)
             {
-                // Exterior should sit outside the front windows (opposite of inward wall normal).
                 var inward = Flatten(room.GetFacingDirection(front));
                 if (inward.sqrMagnitude > 1e-6f)
                 {
@@ -866,116 +875,74 @@ namespace ShipBridgePrototype
                 }
             }
 
-            var right = Vector3.Cross(Vector3.up, forward).normalized;
-            var exteriorCenter = roomCenter + forward * (roomBounds.extents.magnitude + exteriorDistanceFromRoom);
+            // Scenario prefabs are authored with +Z = out the front windows.
+            exteriorRoot.SetPositionAndRotation(roomCenter, Quaternion.LookRotation(forward, Vector3.up));
+            pivotGo.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            _exteriorWorldRoot.SetMotionPivot(pivotGo.transform);
 
-            CreateWaterPlane(exteriorRoot, exteriorCenter, forward);
-            CreateTerrainMountains(exteriorRoot, exteriorCenter, forward, right);
-            CreatePrimitiveMountainRing(exteriorRoot, exteriorCenter, forward, right);
+            EnsureBridgeSystems(out var motion, out var loader);
+            motion.SetControlState(EnsureControlState(motion.gameObject));
+            loader.NotifyExteriorReady(_exteriorWorldRoot, pivotGo.transform, forward);
+
+            var hullPresenter = systemsHullPresenter(motion.gameObject);
+            hullPresenter.BindPivot(pivotGo.transform);
         }
 
-        private void CreateWaterPlane(Transform parent, Vector3 exteriorCenter, Vector3 forward)
+        private static VesselHullPresenter systemsHullPresenter(GameObject systems)
         {
-            var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            water.name = "Water";
-            water.transform.SetParent(parent, false);
-            // Unity plane is 10x10; scale to a large sea in front of the bridge.
-            water.transform.position = exteriorCenter + Vector3.down * 1.5f - forward * 8f;
-            water.transform.localScale = new Vector3(exteriorTerrainSize * 0.12f, 1f, exteriorTerrainSize * 0.12f);
-            ApplyMaterial(water, exteriorWaterMaterial != null ? exteriorWaterMaterial : exteriorGroundMaterial);
+            var presenter = systems.GetComponent<VesselHullPresenter>();
+            if (presenter == null)
+            {
+                presenter = FindAnyObjectByType<VesselHullPresenter>();
+            }
+
+            if (presenter == null)
+            {
+                presenter = systems.AddComponent<VesselHullPresenter>();
+            }
+
+            return presenter;
         }
 
-        private void CreateTerrainMountains(Transform parent, Vector3 exteriorCenter, Vector3 forward, Vector3 right)
+        private static void EnsureBridgeSystems(out ExteriorWorldMotion motion, out ExteriorScenarioLoader loader)
         {
-            var terrainData = new TerrainData
+            var systems = GameObject.Find("ShipBridgeSystems");
+            if (systems == null)
             {
-                heightmapResolution = 129,
-                size = new Vector3(exteriorTerrainSize, exteriorTerrainHeight, exteriorTerrainSize)
-            };
+                systems = new GameObject("ShipBridgeSystems");
+            }
 
-            var res = terrainData.heightmapResolution;
-            var heights = new float[res, res];
-            for (var z = 0; z < res; z++)
+            motion = systems.GetComponent<ExteriorWorldMotion>();
+            if (motion == null)
             {
-                for (var x = 0; x < res; x++)
+                motion = systems.AddComponent<ExteriorWorldMotion>();
+            }
+
+            loader = systems.GetComponent<ExteriorScenarioLoader>();
+            if (loader == null)
+            {
+                loader = systems.AddComponent<ExteriorScenarioLoader>();
+            }
+        }
+
+        private static ShipControlState EnsureControlState(GameObject systems)
+        {
+            var controlState = ShipControlState.Instance;
+            if (controlState == null)
+            {
+                controlState = FindAnyObjectByType<ShipControlState>();
+            }
+
+            if (controlState == null)
+            {
+                controlState = systems.GetComponent<ShipControlState>();
+                if (controlState == null)
                 {
-                    var nx = x / (float)(res - 1);
-                    var nz = z / (float)(res - 1);
-                    // Several soft peaks toward the far side of the terrain.
-                    var h = 0f;
-                    h += Peak(nx, nz, 0.22f, 0.70f, 0.18f, 0.85f);
-                    h += Peak(nx, nz, 0.48f, 0.78f, 0.22f, 1.0f);
-                    h += Peak(nx, nz, 0.72f, 0.66f, 0.16f, 0.75f);
-                    h += Peak(nx, nz, 0.38f, 0.55f, 0.28f, 0.35f);
-                    h += Mathf.PerlinNoise(nx * 4.1f, nz * 4.1f) * 0.08f;
-                    heights[z, x] = Mathf.Clamp01(h);
+                    controlState = systems.AddComponent<ShipControlState>();
                 }
             }
 
-            terrainData.SetHeights(0, 0, heights);
-
-            var terrainGo = Terrain.CreateTerrainGameObject(terrainData);
-            terrainGo.name = "ExteriorTerrain";
-            terrainGo.transform.SetParent(parent, false);
-            terrainGo.transform.position = exteriorCenter
-                                          + forward * (exteriorTerrainSize * 0.15f)
-                                          - right * (exteriorTerrainSize * 0.5f)
-                                          + Vector3.down * 2f;
-
-            var terrain = terrainGo.GetComponent<Terrain>();
-            if (terrain != null && exteriorMountainMaterial != null)
-            {
-                terrain.materialTemplate = exteriorMountainMaterial;
-            }
-        }
-
-        private void CreatePrimitiveMountainRing(Transform parent, Vector3 exteriorCenter, Vector3 forward, Vector3 right)
-        {
-            var mountains = new GameObject("MountainPrimitives").transform;
-            mountains.SetParent(parent, false);
-
-            // Extra bold silhouettes near the windows, complementary to the terrain.
-            PlaceMountain(mountains, exteriorCenter + forward * 28f + right * -18f, new Vector3(22f, 18f, 22f));
-            PlaceMountain(mountains, exteriorCenter + forward * 14f + right * 12f, new Vector3(16f, 12f, 16f));
-            PlaceMountain(mountains, exteriorCenter + forward * 20f + right * 26f, new Vector3(20f, 16f, 18f));
-            PlaceMountain(mountains, exteriorCenter + forward * 34f + right * 4f, new Vector3(28f, 24f, 24f));
-            PlaceMountain(mountains, exteriorCenter + forward * 10f + right * -30f, new Vector3(14f, 10f, 14f));
-        }
-
-        private void PlaceMountain(Transform parent, Vector3 position, Vector3 scale)
-        {
-            var mountain = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-            mountain.name = "Mountain";
-            mountain.transform.SetParent(parent, false);
-            mountain.transform.position = position;
-            mountain.transform.localScale = scale;
-            ApplyMaterial(mountain, exteriorMountainMaterial != null ? exteriorMountainMaterial : wallMaterial);
-
-            var collider = mountain.GetComponent<Collider>();
-            if (collider != null)
-            {
-                if (Application.isPlaying)
-                {
-                    Destroy(collider);
-                }
-                else
-                {
-                    DestroyImmediate(collider);
-                }
-            }
-        }
-
-        private static float Peak(float x, float z, float cx, float cz, float radius, float amplitude)
-        {
-            var dx = (x - cx) / radius;
-            var dz = (z - cz) / radius;
-            var d = dx * dx + dz * dz;
-            if (d > 1f)
-            {
-                return 0f;
-            }
-
-            return (1f - d) * (1f - d) * amplitude;
+            return controlState;
         }
 
         private void ApplyPassthroughForExterior(bool restore)

@@ -10,25 +10,40 @@ namespace ShipBridgePrototype
     /// </summary>
     public class ShipControlState : MonoBehaviour
     {
+        public static ShipControlState Instance { get; private set; }
+
         public enum TelegraphOrder
         {
-            FullAstern = -2,
-            HalfAstern = -1,
+            FullAstern = -4,
+            HalfAstern = -3,
+            SlowAstern = -2,
+            DeadSlowAstern = -1,
             Stop = 0,
-            HalfAhead = 1,
-            FullAhead = 2
+            DeadSlowAhead = 1,
+            SlowAhead = 2,
+            HalfAhead = 3,
+            FullAhead = 4
         }
 
-        [Header("Live values (read-only in inspector)")]
-        [SerializeField] private float rudderAngleDeg;
+        [Header("Rudder")]
+        [SerializeField] private float commandedRudderAngleDeg;
+        [SerializeField] private float actualRudderAngleDeg;
+        [SerializeField] private float rudderFollowSpeedDegPerSec = 12f;
+
+        [Header("Propulsion / thrusters")]
         [SerializeField] private TelegraphOrder telegraph = TelegraphOrder.Stop;
         [SerializeField] private float bowThruster;
+
+        [Header("Other")]
         [SerializeField] private bool hornActive;
         [SerializeField] private bool emergencyStop;
         [SerializeField] private bool anchorPortDown;
         [SerializeField] private bool anchorStarboardDown;
 
-        public UnityEvent<float> RudderChanged = new();
+        private bool _externallyDrivenRudder;
+
+        public UnityEvent<float> CommandedRudderChanged = new();
+        public UnityEvent<float> ActualRudderChanged = new();
         public UnityEvent<TelegraphOrder> TelegraphChanged = new();
         public UnityEvent<float> BowThrusterChanged = new();
         public UnityEvent<bool> HornChanged = new();
@@ -36,18 +51,53 @@ namespace ShipBridgePrototype
         public UnityEvent<bool> AnchorPortChanged = new();
         public UnityEvent<bool> AnchorStarboardChanged = new();
 
-        /// <summary>Commanded rudder angle in degrees. Positive = starboard, negative = port.</summary>
-        public float RudderAngleDeg
+        private void Awake()
         {
-            get => rudderAngleDeg;
+            Instance = this;
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this)
+            {
+                Instance = null;
+            }
+        }
+
+        /// <summary>Requested rudder angle from the wheel. Positive = starboard, negative = port.</summary>
+        public float CommandedRudderAngleDeg
+        {
+            get => commandedRudderAngleDeg;
             set
             {
-                if (!Mathf.Approximately(rudderAngleDeg, value))
+                value = Mathf.Clamp(value, -35f, 35f);
+                if (!Mathf.Approximately(commandedRudderAngleDeg, value))
                 {
-                    rudderAngleDeg = value;
-                    RudderChanged.Invoke(value);
+                    commandedRudderAngleDeg = value;
+                    CommandedRudderChanged.Invoke(value);
                 }
             }
+        }
+
+        /// <summary>Actual rudder angle that follows the command progressively.</summary>
+        public float ActualRudderAngleDeg
+        {
+            get => actualRudderAngleDeg;
+            private set
+            {
+                if (!Mathf.Approximately(actualRudderAngleDeg, value))
+                {
+                    actualRudderAngleDeg = value;
+                    ActualRudderChanged.Invoke(value);
+                }
+            }
+        }
+
+        /// <summary>Legacy alias for commanded rudder angle.</summary>
+        public float RudderAngleDeg
+        {
+            get => CommandedRudderAngleDeg;
+            set => CommandedRudderAngleDeg = value;
         }
 
         public TelegraphOrder Telegraph
@@ -69,6 +119,7 @@ namespace ShipBridgePrototype
             get => bowThruster;
             set
             {
+                value = Mathf.Clamp(value, -1f, 1f);
                 if (!Mathf.Approximately(bowThruster, value))
                 {
                     bowThruster = value;
@@ -127,6 +178,34 @@ namespace ShipBridgePrototype
                     AnchorStarboardChanged.Invoke(value);
                 }
             }
+        }
+
+        /// <summary>
+        /// The navigation core owns the steering-gear dynamics; it pushes the
+        /// actual rudder angle here every frame so indicators stay authoritative.
+        /// </summary>
+        public void DriveActualRudder(float angleDeg)
+        {
+            _externallyDrivenRudder = true;
+            ActualRudderAngleDeg = angleDeg;
+        }
+
+        private void Update()
+        {
+            if (_externallyDrivenRudder)
+            {
+                return; // simulation core drives the actual angle
+            }
+
+            if (Mathf.Approximately(actualRudderAngleDeg, commandedRudderAngleDeg))
+            {
+                return;
+            }
+
+            ActualRudderAngleDeg = Mathf.MoveTowards(
+                actualRudderAngleDeg,
+                commandedRudderAngleDeg,
+                rudderFollowSpeedDegPerSec * Time.deltaTime);
         }
     }
 }
