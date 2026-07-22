@@ -19,9 +19,18 @@ namespace NavigationSim.UnityLayer
 
         [SerializeField] private GameObject oceanPrefab;
         [SerializeField] private Material urpWaterMaterial;
-        [SerializeField] private bool hideScenarioWaterPlanes = true;
+        [Tooltip("Legacy flat Water planes from scenario builders. Leave off so ExteriorWorld/Ocean stays visible.")]
+        [SerializeField] private bool hideScenarioWaterPlanes = false;
+        [Tooltip("Ocean CNG Built-in Mobile/Ocean* shaders are magenta under URP. Keep false and use ExteriorWorld/Ocean for look.")]
+        [SerializeField] private bool renderCngVisuals = false;
         [SerializeField] private bool useUrpFallbackMaterial = true;
-        [SerializeField] private float waterLevelOffsetY = -1.5f;
+        [SerializeField] private float waterLevelOffsetY = -15f;
+        [Tooltip("When true, VesselHullPresenter overwrites waterLevelOffsetY to match hull draft.")]
+        [SerializeField] private bool acceptHullWaterlineDrive = true;
+        [Tooltip("Pin ExteriorWorld Ocean/Water mesh to this world Y (visual sea level).")]
+        [SerializeField] private bool pinExteriorOceanWorldY = true;
+        [SerializeField] private float exteriorOceanWorldY = -15f;
+        [SerializeField] private bool applyExteriorWaterMaterial = true;
         [SerializeField] private float seakeepingVisualGain = 1f;
         [Tooltip("Frames of eager URP reapply after spawn. After that, only repair Built-in/magenta tiles.")]
         [SerializeField] private int reapplyUrpMaterialFrames = 90;
@@ -86,6 +95,8 @@ namespace NavigationSim.UnityLayer
             EnsureOceanSpawned();
             BindPivotFromExterior();
             HideScenarioWaterIfNeeded();
+            ApplyCngVisualPolicy();
+            SyncExteriorOceanVisual();
         }
 
         private void OnDestroy()
@@ -98,44 +109,42 @@ namespace NavigationSim.UnityLayer
 
         private void LateUpdate()
         {
-            if (_ocean == null)
-            {
-                return;
-            }
-
             if (!_hasPivot)
             {
                 BindPivotFromExterior();
             }
 
-            var runner = NavigationSimRunner.Instance;
-            if (runner != null)
+            if (_ocean != null)
             {
-                SetVirtualShipPosition(runner.InterpEast, runner.InterpNorth, runner.InterpPsiDeg);
-                SyncSeaState(runner.Env, runner.InterpHeave, runner.InterpRollDeg, runner.InterpPitchDeg);
-            }
-            else
-            {
-                ApplyOceanPose(0.0, 0.0, 0.0);
+                var runner = NavigationSimRunner.Instance;
+                if (runner != null)
+                {
+                    SetVirtualShipPosition(runner.InterpEast, runner.InterpNorth, runner.InterpPsiDeg);
+                    SyncSeaState(runner.Env, runner.InterpHeave, runner.InterpRollDeg, runner.InterpPitchDeg);
+                }
+                else
+                {
+                    ApplyOceanPose(0.0, 0.0, 0.0);
+                }
+
+                // Only fight Mobile/Ocean → URP when CNG tiles are actually drawn.
+                if (renderCngVisuals && useUrpFallbackMaterial)
+                {
+                    if (_urpReapplyFramesLeft > 0)
+                    {
+                        _urpReapplyFramesLeft--;
+                        ApplyUrpMaterialsToOcean(_ocean, forceRebuild: false);
+                    }
+                    else if (continuousUrpRepair)
+                    {
+                        ApplyUrpMaterialsToOcean(_ocean, forceRebuild: false);
+                    }
+                }
             }
 
             HideScenarioWaterIfNeeded();
-
-            if (!useUrpFallbackMaterial || _ocean == null)
-            {
-                return;
-            }
-
-            if (_urpReapplyFramesLeft > 0)
-            {
-                _urpReapplyFramesLeft--;
-                ApplyUrpMaterialsToOcean(_ocean, forceRebuild: false);
-            }
-            else if (continuousUrpRepair)
-            {
-                // Cheap pass: only rewrite renderers that fell back to Built-in Ocean / error shader.
-                ApplyUrpMaterialsToOcean(_ocean, forceRebuild: false);
-            }
+            ApplyCngVisualPolicy();
+            SyncExteriorOceanVisual();
         }
 
         public void SetVirtualShipPosition(double east, double north, double headingDeg)
@@ -181,6 +190,44 @@ namespace NavigationSim.UnityLayer
             EnsureOceanSpawned();
             BindPivotFromExterior();
             HideScenarioWaterIfNeeded();
+            TrySyncWaterlineFromHull();
+            ApplyCngVisualPolicy();
+            SyncExteriorOceanVisual();
+        }
+
+        /// <summary>
+        /// Sets the calm-water plane relative to the ship pivot (meters). Negative = below floor.
+        /// </summary>
+        public void SetWaterLevelOffsetY(float offsetFromPivotY)
+        {
+            if (!acceptHullWaterlineDrive)
+            {
+                return;
+            }
+
+            waterLevelOffsetY = offsetFromPivotY;
+            if (_hasPivot)
+            {
+                var runner = NavigationSimRunner.Instance;
+                double heave = runner != null ? runner.InterpHeave : 0.0;
+                double roll = runner != null ? runner.InterpRollDeg : 0.0;
+                double pitch = runner != null ? runner.InterpPitchDeg : 0.0;
+                ApplyOceanPose(heave, roll, pitch);
+            }
+        }
+
+        private void TrySyncWaterlineFromHull()
+        {
+            var hull = VesselHullPresenter.Instance;
+            if (hull == null)
+            {
+                hull = FindAnyObjectByType<VesselHullPresenter>();
+            }
+
+            if (hull != null && !string.IsNullOrEmpty(hull.ActiveVesselId))
+            {
+                SetWaterLevelOffsetY(hull.DesignWaterLevelOffsetFromPivot);
+            }
         }
 
         private void EnsureOceanSpawned()
@@ -237,13 +284,110 @@ namespace NavigationSim.UnityLayer
             _tileSizeZ = Mathf.Max(1f, _ocean.size.z);
             _urpReapplyFramesLeft = Mathf.Max(0, reapplyUrpMaterialFrames);
 
-            if (useUrpFallbackMaterial)
+            if (renderCngVisuals && useUrpFallbackMaterial)
             {
                 ApplyUrpMaterialsToOcean(_ocean, forceRebuild: false);
             }
 
-            Debug.Log("[OceanNextGenAdapter] Ocean CNG spawned under OceanMotionRoot (URP fallback="
-                      + useUrpFallbackMaterial + ").");
+            ApplyCngVisualPolicy();
+
+            Debug.Log("[OceanNextGenAdapter] Ocean CNG spawned under OceanMotionRoot (visuals="
+                      + renderCngVisuals + ", URP fallback=" + useUrpFallbackMaterial + ").");
+        }
+
+        /// <summary>
+        /// Ocean CNG still runs CPU wave/height logic for the sim. Its Mobile/Ocean LOD
+        /// materials (L0 foam … L2 blue sea) are Built-in-only and look flat/wrong under URP,
+        /// so visuals default off in favor of ExteriorWorld/Ocean.
+        /// </summary>
+        private void ApplyCngVisualPolicy()
+        {
+            if (_ocean == null)
+            {
+                return;
+            }
+
+            var renderers = _ocean.GetComponentsInChildren<MeshRenderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                var r = renderers[i];
+                if (r != null && r.enabled != renderCngVisuals)
+                {
+                    r.enabled = renderCngVisuals;
+                }
+            }
+        }
+
+        private void SyncExteriorOceanVisual()
+        {
+            var exterior = ExteriorWorldRoot.Instance;
+            if (exterior == null)
+            {
+                exterior = FindAnyObjectByType<ExteriorWorldRoot>();
+            }
+
+            if (exterior == null)
+            {
+                return;
+            }
+
+            Material waterMat = null;
+            if (applyExteriorWaterMaterial)
+            {
+                EnsureUrpWaterMaterial();
+                waterMat = urpWaterMaterial;
+            }
+
+            var transforms = exterior.GetComponentsInChildren<Transform>(true);
+            for (int i = 0; i < transforms.Length; i++)
+            {
+                var t = transforms[i];
+                if (t == null)
+                {
+                    continue;
+                }
+
+                // Visual sea surface in scenario prefabs is named "Ocean".
+                // Do not treat every "Water*" placeholder the same unless pinning height.
+                bool isOceanVisual = t.name == "Ocean";
+                bool isWaterPlaceholder = t.name == "Water" || t.name.StartsWith("Water_");
+                if (!isOceanVisual && !isWaterPlaceholder)
+                {
+                    continue;
+                }
+
+                if (isOceanVisual && !t.gameObject.activeSelf)
+                {
+                    t.gameObject.SetActive(true);
+                }
+
+                if (pinExteriorOceanWorldY && (isOceanVisual || !hideScenarioWaterPlanes))
+                {
+                    var p = t.position;
+                    if (!Mathf.Approximately(p.y, exteriorOceanWorldY))
+                    {
+                        p.y = exteriorOceanWorldY;
+                        t.position = p;
+                    }
+                }
+
+                if (!isOceanVisual || waterMat == null)
+                {
+                    continue;
+                }
+
+                var mr = t.GetComponent<MeshRenderer>();
+                if (mr == null)
+                {
+                    continue;
+                }
+
+                // Nested prefab often has a grey Lit instance — replace with the blue water mat.
+                if (mr.sharedMaterial != waterMat)
+                {
+                    mr.sharedMaterial = waterMat;
+                }
+            }
         }
 
         private void ConfigureOcean(Ocean ocean)
@@ -254,6 +398,11 @@ namespace NavigationSim.UnityLayer
             ocean.renderRefraction = false;
             ocean.mistEnabled = false;
             ocean.forceDepth = false;
+            // Keep Built-in ocean fields aligned with the URP fallback look.
+            ocean.waterColor = new Color(0.08f, 0.42f, 0.62f, 1f);
+            ocean.surfaceColor = new Color(0.35f, 0.65f, 0.85f, 1f);
+            ocean.renderQueue = (int)RenderQueue.Geometry;
+            ocean.shaderAlpha = 1f;
 
             if (ocean.sun == null)
             {
@@ -295,6 +444,7 @@ namespace NavigationSim.UnityLayer
             if (urpWaterMaterial != null && urpWaterMaterial.shader != null
                 && urpWaterMaterial.shader.name != "Hidden/InternalErrorShader")
             {
+                ConfigureUrpWaterMaterial(urpWaterMaterial);
                 return;
             }
 
@@ -309,6 +459,9 @@ namespace NavigationSim.UnityLayer
 
             if (urpWaterMaterial != null)
             {
+                // Clone so we never mutate the shared Resources asset.
+                urpWaterMaterial = new Material(urpWaterMaterial) { name = "OceanUrpWaterRuntime" };
+                ConfigureUrpWaterMaterial(urpWaterMaterial);
                 return;
             }
 
@@ -329,22 +482,71 @@ namespace NavigationSim.UnityLayer
                 return;
             }
 
-            urpWaterMaterial = new Material(shader)
+            urpWaterMaterial = new Material(shader) { name = "OceanUrpFallback" };
+            ConfigureUrpWaterMaterial(urpWaterMaterial);
+        }
+
+        /// <summary>
+        /// Opaque URP Lit water. Transparent Mobile→URP ports often draw as a black void
+        /// (no depth write + bad queue) when viewed from the bridge windows.
+        /// </summary>
+        private static void ConfigureUrpWaterMaterial(Material mat)
+        {
+            if (mat == null)
             {
-                name = "OceanUrpFallback",
-                color = new Color(0.05f, 0.25f, 0.35f, 0.85f)
-            };
-            if (urpWaterMaterial.HasProperty("_BaseColor"))
-            {
-                urpWaterMaterial.SetColor("_BaseColor", new Color(0.05f, 0.25f, 0.35f, 0.85f));
+                return;
             }
 
-            if (urpWaterMaterial.HasProperty("_Surface"))
+            var water = new Color(0.08f, 0.42f, 0.62f, 1f);
+            if (mat.HasProperty("_BaseColor"))
             {
-                urpWaterMaterial.SetFloat("_Surface", 1f);
+                mat.SetColor("_BaseColor", water);
             }
 
-            urpWaterMaterial.renderQueue = (int)RenderQueue.Transparent;
+            mat.color = water;
+
+            if (mat.HasProperty("_Metallic"))
+            {
+                mat.SetFloat("_Metallic", 0.05f);
+            }
+
+            if (mat.HasProperty("_Smoothness"))
+            {
+                mat.SetFloat("_Smoothness", 0.75f);
+            }
+
+            // Force opaque surface so tiles write depth and light correctly under URP.
+            if (mat.HasProperty("_Surface"))
+            {
+                mat.SetFloat("_Surface", 0f);
+            }
+
+            mat.DisableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            mat.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            mat.DisableKeyword("_ALPHABLEND_ON");
+            mat.SetOverrideTag("RenderType", "Opaque");
+            mat.renderQueue = (int)RenderQueue.Geometry;
+
+            if (mat.HasProperty("_SrcBlend"))
+            {
+                mat.SetFloat("_SrcBlend", (float)BlendMode.One);
+            }
+
+            if (mat.HasProperty("_DstBlend"))
+            {
+                mat.SetFloat("_DstBlend", (float)BlendMode.Zero);
+            }
+
+            if (mat.HasProperty("_ZWrite"))
+            {
+                mat.SetFloat("_ZWrite", 1f);
+            }
+
+            mat.EnableKeyword("_EMISSION");
+            if (mat.HasProperty("_EmissionColor"))
+            {
+                mat.SetColor("_EmissionColor", new Color(0.02f, 0.08f, 0.12f, 1f));
+            }
         }
 
         private void ApplyUrpMaterialsToOcean(Ocean ocean, bool forceRebuild)
@@ -378,24 +580,54 @@ namespace NavigationSim.UnityLayer
                 }
 
                 // Prefer sharedMaterial so we don't spawn per-tile instances that keep Mobile/Ocean.
-                if (forceRebuild || IsBuiltInOceanShader(r.sharedMaterial))
+                if (forceRebuild || NeedsUrpRepair(r.sharedMaterial))
                 {
                     r.sharedMaterial = _urpMat0;
                 }
             }
         }
 
-        private static bool IsBuiltInOceanShader(Material mat)
+        private bool NeedsUrpRepair(Material mat)
         {
             if (mat == null || mat.shader == null)
             {
                 return true;
             }
 
+            // Already one of our authored URP fallbacks.
+            if (mat == _urpMat0 || mat == _urpMat1 || mat == _urpMat2)
+            {
+                return false;
+            }
+
             string n = mat.shader.name;
-            return n == "Hidden/InternalErrorShader"
-                   || n.StartsWith("Mobile/Ocean", StringComparison.Ordinal)
-                   || n.Contains("OceanL");
+            if (n == "Hidden/InternalErrorShader"
+                || n.StartsWith("Mobile/Ocean", StringComparison.Ordinal)
+                || n.Contains("OceanL"))
+            {
+                return true;
+            }
+
+            // Ocean.GenerateTiles / mesh paths sometimes leave default grey URP Lit instances.
+            if (n.IndexOf("Universal Render Pipeline", StringComparison.Ordinal) >= 0)
+            {
+                if (mat.HasProperty("_BaseColor"))
+                {
+                    var c = mat.GetColor("_BaseColor");
+                    // Default Lit grey, or any leftover transparent surface.
+                    if (c.r > 0.45f && c.r < 0.55f && c.g > 0.45f && c.g < 0.55f && c.b > 0.45f && c.b < 0.55f)
+                    {
+                        return true;
+                    }
+                }
+
+                if (mat.IsKeywordEnabled("_SURFACE_TYPE_TRANSPARENT") || mat.renderQueue >= 2500)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         private void BindPivotFromExterior()
@@ -525,7 +757,8 @@ namespace NavigationSim.UnityLayer
                     continue;
                 }
 
-                if (t.name == "Water" || t.name.StartsWith("Water"))
+                // Only hide generic scenario "Water" placeholders — never ExteriorWorld/Ocean.
+                if (t.name == "Water" || t.name.StartsWith("Water_"))
                 {
                     if (t.gameObject.activeSelf)
                     {

@@ -84,3 +84,7 @@ crashlytics-build.properties
 .idea/
 # VS Code cache directory
 .vscode/
+
+# External research repos for the naval simulator R&D (not Unity assets,
+# not part of this sample's git history — see NavalSimResearch/README.md)
+/NavalSimResearch/sources/

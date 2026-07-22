@@ -27,7 +27,7 @@ namespace ShipBridgePrototype
         [SerializeField] private float detentCaptureDegrees = 6f;
         [SerializeField] private Vector3 localRotationAxis = Vector3.right;
 
-        // ±90° so Full Ahead/Astern leaves the lever perpendicular to the panel face.
+        // 0° = STOP, lever perpendicular to the panel face; ±90° = Full Ahead/Astern folded toward the face.
         [SerializeField] private Detent[] detents =
         {
             new Detent { order = ShipControlState.TelegraphOrder.FullAhead, angleDeg = 90f, label = "FULL AHEAD" },

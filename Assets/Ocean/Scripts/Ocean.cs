@@ -1296,7 +1296,14 @@ public class Ocean : MonoBehaviour {
 
 		for(int i=0; i<3; i++) {
 			if(mat[i]!= null) {
-				// URP Lit fallbacks only expose a subset of these properties.
+				// URP Lit fallbacks: keep adapter-authored color/queue. Stomping
+				// _BaseColor + renderQueue 2521 made water render black/invisible under URP.
+				if (IsUrpLitMaterial(mat[i]))
+				{
+					continue;
+				}
+
+				// Built-in Mobile/Ocean properties.
 				if (mat[i].HasProperty("_WaterColor")) mat[i].SetColor("_WaterColor", waterColor);
 				if (mat[i].HasProperty("_SurfaceColor")) mat[i].SetColor("_SurfaceColor", surfaceColor);
 				if (mat[i].HasProperty("_FakeUnderwaterColor")) mat[i].SetColor("_FakeUnderwaterColor", fakeWaterColor);
@@ -1310,13 +1317,8 @@ public class Ocean : MonoBehaviour {
 				if (mat[i].HasProperty("_ShoreStrength")) mat[i].SetFloat("_ShoreStrength", shoreStrength);
 				if (mat[i].HasProperty("_Translucency")) mat[i].SetFloat("_Translucency", translucency);
 				if (mat[i].HasProperty("_DistanceCancellation")) mat[i].SetFloat("_DistanceCancellation", cancellationDistance);
-				if (mat[i].HasProperty("_BaseColor")) mat[i].SetColor("_BaseColor", waterColor);
-				if (mat[i].HasProperty("_Color")) mat[i].SetColor("_Color", waterColor);
 				mat[i].renderQueue = renderQueue;
-				if (!IsUrpLitMaterial(mat[i]))
-				{
-					shader_LOD(!shaderLod, material, lowShaderLod);
-				}
+				shader_LOD(!shaderLod, material, lowShaderLod);
 			}
 		}
 

@@ -33,7 +33,7 @@ namespace NavigationSim.UnityLayer
         /// deterministic core faster preserves all the physics (ratios stay exact)
         /// while making the maneuver watchable — standard in bridge simulators.
         /// </summary>
-        [SerializeField] private float timeScale = 16f;
+        [SerializeField] private float timeScale = 1f;
 
         public float TimeScale
         {

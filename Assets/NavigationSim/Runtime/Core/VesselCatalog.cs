@@ -15,6 +15,11 @@ namespace NavigationSim.Core
         public float BridgeHeightAboveDeckM;
         /// <summary>How far ahead of the room pivot the hull attach point sits [m].</summary>
         public float HullForwardFromPivotM;
+        /// <summary>
+        /// Yaw applied to the FBX. Blender hulls in this project extend along -Z from a
+        /// stern-near origin; 180° puts the bow out the front bridge windows.
+        /// </summary>
+        public float HullYawDeg = 180f;
         /// <summary>Optional uniform scale if the mesh needs a final nudge.</summary>
         public float VisualScale = 1f;
         public Func<VesselConfig> CreateConfig;

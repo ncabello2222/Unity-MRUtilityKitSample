@@ -295,25 +295,26 @@ namespace ShipBridgePrototype.Editor
             pivot.transform.SetParent(root.transform, false);
             pivot.transform.localPosition = Vector3.zero;
 
+            // STOP / zero: lever sticks out toward panel front (-Z), perpendicular to the face.
             var shaft = GameObject.CreatePrimitive(PrimitiveType.Cube);
             shaft.name = "Shaft";
             shaft.transform.SetParent(pivot.transform, false);
-            shaft.transform.localPosition = new Vector3(0f, 0.12f, 0f);
-            shaft.transform.localScale = new Vector3(0.02f, 0.24f, 0.02f);
+            shaft.transform.localPosition = new Vector3(0f, 0f, -0.12f);
+            shaft.transform.localScale = new Vector3(0.02f, 0.02f, 0.24f);
             shaft.GetComponent<MeshRenderer>().sharedMaterial = brass;
 
             var grip = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             grip.name = "Grip";
             grip.transform.SetParent(pivot.transform, false);
-            grip.transform.localPosition = new Vector3(0f, 0.25f, 0f);
+            grip.transform.localPosition = new Vector3(0f, 0f, -0.25f);
             grip.transform.localScale = Vector3.one * 0.05f;
             grip.GetComponent<MeshRenderer>().sharedMaterial = accent;
 
             var needle = GameObject.CreatePrimitive(PrimitiveType.Cube);
             needle.name = "OrderNeedle";
             needle.transform.SetParent(root.transform, false);
-            needle.transform.localPosition = new Vector3(0.06f, 0f, 0f);
-            needle.transform.localScale = new Vector3(0.008f, 0.08f, 0.008f);
+            needle.transform.localPosition = new Vector3(0.06f, 0f, -0.04f);
+            needle.transform.localScale = new Vector3(0.008f, 0.008f, 0.08f);
             UnityEngine.Object.DestroyImmediate(needle.GetComponent<Collider>());
             needle.GetComponent<MeshRenderer>().sharedMaterial = accent;
 
@@ -344,17 +345,18 @@ namespace ShipBridgePrototype.Editor
             pivot.transform.SetParent(root.transform, false);
             pivot.transform.localPosition = new Vector3(0f, 0.02f, 0f);
 
+            // Zero / spring-return: lever sticks out toward panel front (-Z), perpendicular to the face.
             var shaft = GameObject.CreatePrimitive(PrimitiveType.Cube);
             shaft.name = "Shaft";
             shaft.transform.SetParent(pivot.transform, false);
-            shaft.transform.localPosition = new Vector3(0.07f, 0.03f, 0f);
-            shaft.transform.localScale = new Vector3(0.14f, 0.018f, 0.018f);
+            shaft.transform.localPosition = new Vector3(0f, 0.03f, -0.07f);
+            shaft.transform.localScale = new Vector3(0.018f, 0.018f, 0.14f);
             shaft.GetComponent<MeshRenderer>().sharedMaterial = brass;
 
             var grip = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             grip.name = "Grip";
             grip.transform.SetParent(pivot.transform, false);
-            grip.transform.localPosition = new Vector3(0.14f, 0.03f, 0f);
+            grip.transform.localPosition = new Vector3(0f, 0.03f, -0.14f);
             grip.transform.localScale = Vector3.one * 0.04f;
             grip.GetComponent<MeshRenderer>().sharedMaterial = brass;
 
@@ -362,7 +364,7 @@ namespace ShipBridgePrototype.Editor
             CreateLabel(root.transform, "Port", "PORT", new Vector3(-0.08f, 0.06f, -0.02f), 2f, TextAlignmentOptions.Center);
             CreateLabel(root.transform, "Stbd", "STBD", new Vector3(0.08f, 0.06f, -0.02f), 2f, TextAlignmentOptions.Center);
 
-            // ±90° around Up: extremes point into / out of the panel (perpendicular to the face).
+            // ±90° around Up: swing port/stbd; zero stays perpendicular to the panel face.
             SetupRotateGrab(pivot, OneGrabRotateTransformer.Axis.Up, -90f, 90f);
 
             var grab = pivot.GetComponent<Grabbable>();

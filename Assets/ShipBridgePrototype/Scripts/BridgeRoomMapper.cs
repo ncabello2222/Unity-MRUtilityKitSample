@@ -155,7 +155,6 @@ namespace ShipBridgePrototype
             CreateFloorAndCeiling(room, _generatedRoot);
             CreateBridgeWalls(room, _generatedRoot);
             CreateRoomObjectProxies(room, _generatedRoot);
-            CreateRoleMarkers(_generatedRoot);
 
             if (generateExterior)
             {
@@ -785,49 +784,6 @@ namespace ShipBridgePrototype
                     go.transform.rotation = anchor.transform.rotation;
                     go.transform.localScale = new Vector3(rect.width, rect.height, 0.04f);
                     ApplyMaterial(go, roomObjectMaterial);
-                }
-            }
-        }
-
-        private void CreateRoleMarkers(Transform root)
-        {
-            var markers = new GameObject("RoleMarkers").transform;
-            markers.SetParent(root, false);
-
-            foreach (var entry in _gizmoWalls)
-            {
-                if (entry.role == WallRole.SolidExtra)
-                {
-                    continue;
-                }
-
-                var marker = new GameObject($"Marker_{entry.role}");
-                marker.transform.SetParent(markers, false);
-                marker.transform.position = entry.center + Vector3.up * 0.05f;
-
-                // Small colored cube as an in-scene reference (complements OnDrawGizmos).
-                var cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                cube.name = "Badge";
-                cube.transform.SetParent(marker.transform, false);
-                cube.transform.localScale = new Vector3(0.15f, 0.15f, 0.15f);
-                var renderer = cube.GetComponent<MeshRenderer>();
-                if (renderer != null)
-                {
-                    renderer.sharedMaterial = wallMaterial;
-                    renderer.material.color = RoleColor(entry.role);
-                }
-
-                var collider = cube.GetComponent<Collider>();
-                if (collider != null)
-                {
-                    if (Application.isPlaying)
-                    {
-                        Destroy(collider);
-                    }
-                    else
-                    {
-                        DestroyImmediate(collider);
-                    }
                 }
             }
         }

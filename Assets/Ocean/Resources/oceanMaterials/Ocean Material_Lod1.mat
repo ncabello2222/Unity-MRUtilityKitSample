@@ -87,7 +87,7 @@ Material:
     - _Blend: 0
     - _BlendA: -0.6632021
     - _BlendB: -0.7484403
-    - _DistanceCancellation: 2600
+    - _DistanceCancellation: 2000
     - _FoamFactor: 1.1
     - _FoamSize: 1
     - _Shininess: 0.7665094
