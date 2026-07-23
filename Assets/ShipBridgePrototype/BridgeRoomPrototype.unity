@@ -26,7 +26,7 @@ RenderSettings:
   m_AmbientIntensity: 1
   m_AmbientMode: 0
   m_SubtractiveShadowColor: {r: 0.42, g: 0.478, b: 0.627, a: 1}
-  m_SkyboxMaterial: {fileID: 0}
+  m_SkyboxMaterial: {fileID: 2100000, guid: 9dbeaf053c6fb4c2f93b45a9995c408e, type: 2}
   m_HaloStrength: 0.5
   m_FlareStrength: 1
   m_FlareFadeSpeed: 3
@@ -37,7 +37,7 @@ RenderSettings:
   m_ReflectionBounces: 1
   m_ReflectionIntensity: 1
   m_CustomReflection: {fileID: 0}
-  m_Sun: {fileID: 0}
+  m_Sun: {fileID: 624129842}
   m_UseRadianceAmbientProbe: 0
 --- !u!157 &3
 LightmapSettings:
@@ -93,7 +93,7 @@ LightmapSettings:
     m_ExportTrainingData: 0
     m_TrainingDataDestination: TrainingData
     m_LightProbeSampleCountMultiplier: 4
-  m_LightingDataAsset: {fileID: 0}
+  m_LightingDataAsset: {fileID: 112000000, guid: c7867ae1781c4a54aa572a622830896c, type: 2}
   m_LightingSettings: {fileID: 0}
 --- !u!196 &4
 NavMeshSettings:
@@ -166,6 +166,9 @@ MonoBehaviour:
   exteriorGroundMaterial: {fileID: 2100000, guid: 3e9528e42effb2b42aa8ec5212e80cec, type: 2}
   exteriorMountainMaterial: {fileID: 2100000, guid: 2dbd3e79615971241983801958dc91d9, type: 2}
   exteriorWaterMaterial: {fileID: 2100000, guid: 984d77fc4674e6b4b92d56ed62387f68, type: 2}
+  enableWallOcclusion: 0
+  wallOcclusionMaterial: {fileID: 2100000, guid: 8f3c2a91e6b04d7a9c5e1b0d4a7f82e3, type: 2}
+  keepWallVisuals: 1
   generateExterior: 1
   disablePassthroughForExterior: 1
   exteriorTerrainSize: 220
@@ -721,6 +724,26 @@ PrefabInstance:
       propertyPath: controllerDrivenHandPosesType
       value: 1
       objectReference: {fileID: 0}
+    - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: requestScenePermissionOnStartup
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 11400000, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: requestPassthroughCameraAccessPermissionOnStartup
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 11400010, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: usePerEyeCameras
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 11400010, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: disableEyeAnchorCameras
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 11400010, guid: 126d619cf4daa52469682f85c1378b4a, type: 3}
+      propertyPath: useFixedUpdateForTracking
+      value: 0
+      objectReference: {fileID: 0}
     m_RemovedComponents: []
     m_RemovedGameObjects: []
     m_AddedGameObjects:
@@ -1223,6 +1246,7 @@ GameObject:
   - component: {fileID: 2051625789}
   - component: {fileID: 2051625788}
   - component: {fileID: 2051625791}
+  - component: {fileID: 2051625792}
   m_Layer: 0
   m_Name: ShipBridgeSystems
   m_TagString: Untagged
@@ -1246,6 +1270,7 @@ MonoBehaviour:
   exteriorWorld: {fileID: 0}
   shipPivot: {fileID: 0}
   seakeepingVisualGain: 1
+  applySeakeepingAttitudeToExterior: 0
 --- !u!114 &2051625789
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1324,6 +1349,28 @@ MonoBehaviour:
   worldMotion: {fileID: 0}
   loadDefaultWhenExteriorReady: 1
   resetShipMotionOnSwap: 1
+--- !u!114 &2051625792
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 2051625787}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: b7c4e2a91f6d4a0e8c3d5f7a9b1e2c4d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ShipBridgePrototype.CrestOceanBootstrap
+  crestWaterPrefab: {fileID: 4047251351948261864, guid: 65f0903abb599844ca29f8caa2d7cbbf, type: 3}
+  waterMaterial: {fileID: 2100000, guid: 8ab064b6606504a55b489af2787350c2, type: 2}
+  underwaterMaterial: {fileID: 2100000, guid: f2b096e4d95e646c49d48ece0afa0547, type: 2}
+  waveSpectrum: {fileID: 11400000, guid: 2985cdff827b8472bafc9e2da18fbf06, type: 2}
+  seaLevelLocalY: -16.5
+  attachWhenExteriorReady: 1
+  destroyPreviousOceanOnAttach: 1
+  addCalmWaves: 1
+  enableClipSurface: 0
+  enableUnderwater: 0
 --- !u!1001 &62505388837084176
 PrefabInstance:
   m_ObjectHideFlags: 0

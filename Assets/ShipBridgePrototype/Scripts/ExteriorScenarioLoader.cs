@@ -1,4 +1,3 @@
-using NavigationSim.UnityLayer;
 using UnityEngine;
 
 namespace ShipBridgePrototype
@@ -67,8 +66,6 @@ namespace ShipBridgePrototype
             {
                 LoadDefault();
             }
-
-            OceanNextGenAdapter.EnsureInstance().NotifyExteriorChanged();
         }
 
         public bool LoadDefault()
@@ -152,8 +149,6 @@ namespace ShipBridgePrototype
             {
                 worldMotion.RecaptureExteriorPose(resetShipState: resetShipMotionOnSwap);
             }
-
-            OceanNextGenAdapter.EnsureInstance().NotifyExteriorChanged();
 
             Debug.Log($"[ExteriorScenarioLoader] Loaded scenario [{index}] '{CurrentId}'.");
             return true;

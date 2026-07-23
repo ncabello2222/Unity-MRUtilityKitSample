@@ -83,10 +83,6 @@ namespace ShipBridgePrototype
             {
                 ApplyPose(VesselCatalog.Get(VesselCatalog.IndexOf(_activeId)));
             }
-            else
-            {
-                NotifyOceanWaterline();
-            }
         }
 
         public void ShowVessel(string vesselId)
@@ -130,15 +126,6 @@ namespace ShipBridgePrototype
             instance.name = $"Hull_{def.Id}";
             OptimizeForUnity(instance);
             return instance;
-        }
-
-        private void NotifyOceanWaterline()
-        {
-            var ocean = OceanNextGenAdapter.EnsureInstance();
-            if (ocean != null)
-            {
-                ocean.SetWaterLevelOffsetY(DesignWaterLevelOffsetFromPivot);
-            }
         }
 
         private static float GetDesignDraftM(VesselDefinition def)
@@ -267,8 +254,6 @@ namespace ShipBridgePrototype
                 fineTuneOffset.x,
                 -def.BridgeHeightAboveDeckM + fineTuneOffset.y,
                 def.HullForwardFromPivotM + fineTuneOffset.z);
-
-            NotifyOceanWaterline();
         }
 
         private void ResolvePivot()

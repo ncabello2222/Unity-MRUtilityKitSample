@@ -23,7 +23,6 @@ namespace ShipBridgePrototype.Editor
         {
             EnsureFolder(PrefabsFolder);
 
-            var water = AssetDatabase.LoadAssetAtPath<Material>("Assets/ShipBridgePrototype/Materials/BridgeExteriorWater.mat");
             var mountain = AssetDatabase.LoadAssetAtPath<Material>("Assets/ShipBridgePrototype/Materials/BridgeExteriorMountain.mat");
 
             var tempRoot = new GameObject("_ScenarioBakeRoot");
@@ -31,7 +30,6 @@ namespace ShipBridgePrototype.Editor
             {
                 var built = CoastalExteriorScenarioBuilder.Build(
                     tempRoot.transform,
-                    water,
                     mountain,
                     terrainSize: 220f,
                     terrainHeight: 45f,

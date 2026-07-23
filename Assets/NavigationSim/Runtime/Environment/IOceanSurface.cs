@@ -4,9 +4,8 @@ namespace NavigationSim.Core
 {
     /// <summary>
     /// Abstraction over the visual ocean (§9.2 of the master plan). Any render
-    /// asset (Ocean Community Next Gen or a simple plane) is hidden behind this.
-    /// The Unity adapter (<c>OceanNextGenAdapter</c>) is the only place that
-    /// may reference the Ocean CNG asset directly.
+    /// asset is hidden behind this; use <see cref="SimpleOceanSurface"/> until a
+    /// replacement Unity adapter is wired.
     /// </summary>
     public interface IOceanSurface
     {

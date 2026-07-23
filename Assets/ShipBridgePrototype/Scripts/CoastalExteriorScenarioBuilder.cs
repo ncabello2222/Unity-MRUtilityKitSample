@@ -10,7 +10,6 @@ namespace ShipBridgePrototype
     {
         public static GameObject Build(
             Transform parent,
-            Material waterMaterial,
             Material mountainMaterial,
             float terrainSize = 220f,
             float terrainHeight = 45f,
@@ -23,30 +22,11 @@ namespace ShipBridgePrototype
             var forward = Vector3.forward;
             var right = Vector3.right;
 
-            CreateWaterPlane(root.transform, exteriorCenter, forward, waterMaterial, terrainSize);
+            // Ocean comes from CrestOceanBootstrap under ExteriorWorld, not this prefab.
             CreateTerrainMountains(root.transform, exteriorCenter, forward, right, mountainMaterial, terrainSize, terrainHeight);
             CreatePrimitiveMountainRing(root.transform, exteriorCenter, forward, right, mountainMaterial);
 
             return root;
-        }
-
-        private static void CreateWaterPlane(
-            Transform parent,
-            Vector3 exteriorCenter,
-            Vector3 forward,
-            Material waterMaterial,
-            float terrainSize)
-        {
-            var water = GameObject.CreatePrimitive(PrimitiveType.Plane);
-            water.name = "Water";
-            water.transform.SetParent(parent, false);
-            water.transform.localPosition = exteriorCenter + Vector3.down * 1.5f - forward * 8f;
-            water.transform.localRotation = Quaternion.identity;
-            water.transform.localScale = new Vector3(terrainSize * 0.12f, 1f, terrainSize * 0.12f);
-            if (waterMaterial != null)
-            {
-                water.GetComponent<MeshRenderer>().sharedMaterial = waterMaterial;
-            }
         }
 
         private static void CreateTerrainMountains(

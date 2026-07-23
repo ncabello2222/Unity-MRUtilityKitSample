@@ -42,6 +42,14 @@ namespace ShipBridgePrototype
         [SerializeField] private Material exteriorMountainMaterial;
         [SerializeField] private Material exteriorWaterMaterial;
 
+        [Header("Wall Occlusion")]
+        [Tooltip("Write depth on solid wall panels so exterior content is hidden behind bulkheads. Window glass/openings are never occluders.")]
+        [SerializeField] private bool enableWallOcclusion = true;
+        [Tooltip("Depth-only material (Meta InvisibleOccluder). Used on solid panels / bulkheads / pillars.")]
+        [SerializeField] private Material wallOcclusionMaterial;
+        [Tooltip("If true, keep BridgeWall visuals and add a depth-only occluder twin. If false, solids use only the occluder (passthrough walls).")]
+        [SerializeField] private bool keepWallVisuals = true;
+
         [Header("Exterior")]
         [SerializeField] private bool generateExterior = true;
         [SerializeField] private bool disablePassthroughForExterior = true;
@@ -540,12 +548,11 @@ namespace ShipBridgePrototype
             wallRoot.SetParent(parent, false);
             wallRoot.SetPositionAndRotation(wall.transform.position, wall.transform.rotation);
 
-            CreateWallPanel(
+            CreateSolidWallPanel(
                 wallRoot,
                 "Solid",
                 new Vector3(rect.center.x, rect.center.y, -wallThickness * 0.5f),
-                new Vector3(rect.width, rect.height, wallThickness),
-                wallMaterial);
+                new Vector3(rect.width, rect.height, wallThickness));
         }
 
         private void CreateFrontWindowWall(MRUKAnchor wall, Transform parent)
@@ -571,40 +578,36 @@ namespace ShipBridgePrototype
             var z = -wallThickness * 0.5f;
 
             // Bottom bulkhead under the window.
-            CreateWallPanel(
+            CreateSolidWallPanel(
                 wallRoot,
                 "Bottom",
                 new Vector3(rect.center.x, (bottomY + windowBottom) * 0.5f, z),
-                new Vector3(rect.width, windowBottom - bottomY, wallThickness),
-                wallMaterial);
+                new Vector3(rect.width, windowBottom - bottomY, wallThickness));
 
             // Top strip above the window (near ceiling).
             var topStripHeight = topY - windowTop;
             if (topStripHeight > 0.01f)
             {
-                CreateWallPanel(
+                CreateSolidWallPanel(
                     wallRoot,
                     "Top",
                     new Vector3(rect.center.x, (windowTop + topY) * 0.5f, z),
-                    new Vector3(rect.width, topStripHeight, wallThickness),
-                    wallMaterial);
+                    new Vector3(rect.width, topStripHeight, wallThickness));
             }
 
             // Left / right pillars (narrow margins) — keep opening continuous; only if margin > 0.
             if (margin > 0.01f)
             {
-                CreateWallPanel(
+                CreateSolidWallPanel(
                     wallRoot,
                     "LeftPillar",
                     new Vector3((rect.xMin + windowLeft) * 0.5f, windowCenterY, z),
-                    new Vector3(margin, windowHeight, wallThickness),
-                    wallMaterial);
-                CreateWallPanel(
+                    new Vector3(margin, windowHeight, wallThickness));
+                CreateSolidWallPanel(
                     wallRoot,
                     "RightPillar",
                     new Vector3((windowRight + rect.xMax) * 0.5f, windowCenterY, z),
-                    new Vector3(margin, windowHeight, wallThickness),
-                    wallMaterial);
+                    new Vector3(margin, windowHeight, wallThickness));
             }
 
             CreateWindowOpening(
@@ -623,12 +626,11 @@ namespace ShipBridgePrototype
 
             if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) || front == null)
             {
-                CreateWallPanel(
+                CreateSolidWallPanel(
                     wallRoot,
                     "Solid",
                     new Vector3(rect.center.x, rect.center.y, -wallThickness * 0.5f),
-                    new Vector3(rect.width, rect.height, wallThickness),
-                    wallMaterial);
+                    new Vector3(rect.width, rect.height, wallThickness));
                 return;
             }
 
@@ -667,34 +669,31 @@ namespace ShipBridgePrototype
             // Solid rear half (full height).
             if (solidWidth > 0.01f)
             {
-                CreateWallPanel(
+                CreateSolidWallPanel(
                     wallRoot,
                     "SolidAftHalf",
                     new Vector3((solidMinX + solidMaxX) * 0.5f, rect.center.y, z),
-                    new Vector3(solidWidth, rect.height, wallThickness),
-                    wallMaterial);
+                    new Vector3(solidWidth, rect.height, wallThickness));
             }
 
             // Front half: bottom + top around the window opening (true aperture).
             var winWidth = windowMaxX - windowMinX;
             var winCenterX = (windowMinX + windowMaxX) * 0.5f;
 
-            CreateWallPanel(
+            CreateSolidWallPanel(
                 wallRoot,
                 "BottomFrontHalf",
                 new Vector3(winCenterX, (bottomY + windowBottom) * 0.5f, z),
-                new Vector3(winWidth, windowBottom - bottomY, wallThickness),
-                wallMaterial);
+                new Vector3(winWidth, windowBottom - bottomY, wallThickness));
 
             var topStripHeight = topY - windowTop;
             if (topStripHeight > 0.01f)
             {
-                CreateWallPanel(
+                CreateSolidWallPanel(
                     wallRoot,
                     "TopFrontHalf",
                     new Vector3(winCenterX, (windowTop + topY) * 0.5f, z),
-                    new Vector3(winWidth, topStripHeight, wallThickness),
-                    wallMaterial);
+                    new Vector3(winWidth, topStripHeight, wallThickness));
             }
 
             CreateWindowOpening(
@@ -732,7 +731,32 @@ namespace ShipBridgePrototype
             CreateWallPanel(openingRoot, "Right", new Vector3(hw - t * 0.5f, 0f, 0f), new Vector3(t, height, d), windowFrameMaterial);
         }
 
-        private void CreateWallPanel(Transform parent, string name, Vector3 localPosition, Vector3 localScale, Material material)
+        private void CreateSolidWallPanel(Transform parent, string name, Vector3 localPosition, Vector3 localScale)
+        {
+            // Opaque wallMaterial already writes depth and occludes the exterior through bulkheads.
+            // Only spawn InvisibleOccluder when visuals are off (passthrough-wall mode). Spawning
+            // occluder twins alongside painted walls risks error/magenta shaders covering the bridge
+            // on Android if Meta/MRUK/MixedReality/InvisibleOccluder fails to compile.
+            var wantsOccluderOnly = enableWallOcclusion &&
+                                    !keepWallVisuals &&
+                                    wallOcclusionMaterial != null;
+
+            if (wantsOccluderOnly)
+            {
+                CreateWallPanel(parent, name, localPosition, localScale, wallOcclusionMaterial, removeCollider: false);
+                return;
+            }
+
+            CreateWallPanel(parent, name, localPosition, localScale, wallMaterial, removeCollider: false);
+        }
+
+        private void CreateWallPanel(
+            Transform parent,
+            string name,
+            Vector3 localPosition,
+            Vector3 localScale,
+            Material material,
+            bool removeCollider = false)
         {
             if (localScale.x <= 0.001f || localScale.y <= 0.001f || localScale.z <= 0.001f)
             {
@@ -746,6 +770,15 @@ namespace ShipBridgePrototype
             go.transform.localRotation = Quaternion.identity;
             go.transform.localScale = localScale;
             ApplyMaterial(go, material);
+
+            if (removeCollider)
+            {
+                var col = go.GetComponent<Collider>();
+                if (col != null)
+                {
+                    Destroy(col);
+                }
+            }
         }
 
         private void CreateRoomObjectProxies(MRUKRoom room, Transform root)
@@ -836,9 +869,10 @@ namespace ShipBridgePrototype
             pivotGo.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
             _exteriorWorldRoot.SetMotionPivot(pivotGo.transform);
 
-            EnsureBridgeSystems(out var motion, out var loader);
+            EnsureBridgeSystems(out var motion, out var loader, out var crestOcean);
             motion.SetControlState(EnsureControlState(motion.gameObject));
             loader.NotifyExteriorReady(_exteriorWorldRoot, pivotGo.transform, forward);
+            crestOcean.NotifyExteriorReady(_exteriorWorldRoot);
 
             var hullPresenter = systemsHullPresenter(motion.gameObject);
             hullPresenter.BindPivot(pivotGo.transform);
@@ -860,7 +894,10 @@ namespace ShipBridgePrototype
             return presenter;
         }
 
-        private static void EnsureBridgeSystems(out ExteriorWorldMotion motion, out ExteriorScenarioLoader loader)
+        private static void EnsureBridgeSystems(
+            out ExteriorWorldMotion motion,
+            out ExteriorScenarioLoader loader,
+            out CrestOceanBootstrap crestOcean)
         {
             var systems = GameObject.Find("ShipBridgeSystems");
             if (systems == null)
@@ -878,6 +915,12 @@ namespace ShipBridgePrototype
             if (loader == null)
             {
                 loader = systems.AddComponent<ExteriorScenarioLoader>();
+            }
+
+            crestOcean = systems.GetComponent<CrestOceanBootstrap>();
+            if (crestOcean == null)
+            {
+                crestOcean = systems.AddComponent<CrestOceanBootstrap>();
             }
         }
 

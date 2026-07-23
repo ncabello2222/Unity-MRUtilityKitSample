@@ -22,6 +22,12 @@ namespace ShipBridgePrototype
         [Tooltip("Scales the wave-induced heave/roll/pitch applied to the horizon.")]
         [SerializeField] private float seakeepingVisualGain = 1f;
 
+        [Tooltip(
+            "If off (default), only heave + yaw move ExteriorWorld. Pitch/roll stay off so a " +
+            "flat Crest ocean stays locked to terrain vertically. Enable only if the exterior " +
+            "should physically tilt.")]
+        [SerializeField] private bool applySeakeepingAttitudeToExterior = false;
+
         private Matrix4x4 _initialExteriorWorld;
         private Matrix4x4 _initialShipWorld;
         private bool _hasInitialPose;
@@ -176,11 +182,11 @@ namespace ShipBridgePrototype
                 (float)runner.InterpHeave * gain,
                 (float)runner.InterpNorth);
 
-            // Yaw, then pitch (bow down = +X euler), then roll (starboard down = -Z euler).
-            var attitude = Quaternion.Euler(
-                (float)runner.InterpPitchDeg * gain,
-                (float)runner.InterpPsiDeg,
-                -(float)runner.InterpRollDeg * gain);
+            // Yaw always. Pitch/roll only if explicitly enabled — Crest water is world-flat,
+            // so tilting ExteriorWorld makes the shoreline slide vs the ocean surface.
+            float pitch = applySeakeepingAttitudeToExterior ? (float)runner.InterpPitchDeg * gain : 0f;
+            float roll = applySeakeepingAttitudeToExterior ? -(float)runner.InterpRollDeg * gain : 0f;
+            var attitude = Quaternion.Euler(pitch, (float)runner.InterpPsiDeg, roll);
 
             var position = _initialPivotPosition + _shipForwardBasis * localOffset;
             return Matrix4x4.TRS(position, _shipForwardBasis * attitude, Vector3.one);
