@@ -9,7 +9,7 @@ namespace NavigationSim.UnityLayer
     /// bridge controls (ShipControlState), steps the ShipSimulator at a fixed
     /// 50 Hz and exposes an interpolated pose for the world-motion driver.
     /// The ship never moves in Unity: consumers apply the inverse transform.
-    /// Visual ocean phase is driven by an <see cref="IOceanSurface"/> adapter when present.
+    /// Visual ocean phase is driven by <see cref="NorthStarOceanAdapter"/>.
     /// </summary>
     public class NavigationSimRunner : MonoBehaviour
     {

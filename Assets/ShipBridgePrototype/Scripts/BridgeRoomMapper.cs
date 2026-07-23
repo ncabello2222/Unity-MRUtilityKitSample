@@ -869,10 +869,9 @@ namespace ShipBridgePrototype
             pivotGo.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
             _exteriorWorldRoot.SetMotionPivot(pivotGo.transform);
 
-            EnsureBridgeSystems(out var motion, out var loader, out var crestOcean);
+            EnsureBridgeSystems(out var motion, out var loader);
             motion.SetControlState(EnsureControlState(motion.gameObject));
             loader.NotifyExteriorReady(_exteriorWorldRoot, pivotGo.transform, forward);
-            crestOcean.NotifyExteriorReady(_exteriorWorldRoot);
 
             var hullPresenter = systemsHullPresenter(motion.gameObject);
             hullPresenter.BindPivot(pivotGo.transform);
@@ -896,8 +895,7 @@ namespace ShipBridgePrototype
 
         private static void EnsureBridgeSystems(
             out ExteriorWorldMotion motion,
-            out ExteriorScenarioLoader loader,
-            out CrestOceanBootstrap crestOcean)
+            out ExteriorScenarioLoader loader)
         {
             var systems = GameObject.Find("ShipBridgeSystems");
             if (systems == null)
@@ -915,12 +913,6 @@ namespace ShipBridgePrototype
             if (loader == null)
             {
                 loader = systems.AddComponent<ExteriorScenarioLoader>();
-            }
-
-            crestOcean = systems.GetComponent<CrestOceanBootstrap>();
-            if (crestOcean == null)
-            {
-                crestOcean = systems.AddComponent<CrestOceanBootstrap>();
             }
         }
 

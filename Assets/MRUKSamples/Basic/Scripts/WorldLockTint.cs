@@ -7,7 +7,7 @@ using UnityEngine;
 using UnityEngine.Events;
 
 namespace Meta.XR.MRUtilityKitSamples.Basic
-{
+{ 
     /// <summary>
     /// Shows a red tint on the effect mesh when world locking is inactive.
     /// </summary>

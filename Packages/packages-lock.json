@@ -16,6 +16,23 @@
         "com.unity.test-framework": "1.1.31"
       }
     },
+    "com.meta.utilities": {
+      "version": "file:com.meta.utilities",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.unity.collections": "1.2.4"
+      }
+    },
+    "com.meta.utilities.environment": {
+      "version": "file:com.meta.utilities.environment",
+      "depth": 0,
+      "source": "embedded",
+      "dependencies": {
+        "com.meta.utilities": "1.1.1",
+        "com.meta.xr.sdk.core": "66.0.0"
+      }
+    },
     "com.meta.xr.mrutilitykit": {
       "version": "203.0.0",
       "depth": 0,
@@ -419,15 +436,6 @@
         "com.unity.xr.legacyinputhelpers": "2.1.2"
       },
       "url": "https://packages.unity.com"
-    },
-    "com.waveharmonic.crest": {
-      "version": "file:com.waveharmonic.crest",
-      "depth": 0,
-      "source": "embedded",
-      "dependencies": {
-        "com.unity.render-pipelines.core": "14.0.12",
-        "com.unity.shadergraph": "14.0.12"
-      }
     },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",

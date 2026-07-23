@@ -22,7 +22,7 @@ namespace ShipBridgePrototype
             var forward = Vector3.forward;
             var right = Vector3.right;
 
-            // Ocean comes from CrestOceanBootstrap under ExteriorWorld, not this prefab.
+            // Ocean comes from NorthStarOceanAdapter, not this prefab.
             CreateTerrainMountains(root.transform, exteriorCenter, forward, right, mountainMaterial, terrainSize, terrainHeight);
             CreatePrimitiveMountainRing(root.transform, exteriorCenter, forward, right, mountainMaterial);
 

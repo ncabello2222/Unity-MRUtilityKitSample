@@ -17,6 +17,8 @@ namespace ShipBridgePrototype
         [SerializeField] private Transform hullParent;
         [Tooltip("Extra lateral/vertical nudge after catalog offsets [m].")]
         [SerializeField] private Vector3 fineTuneOffset;
+        [Tooltip("Yaw applied to Blender hulls so bow points with the bridge windows (+Z). FBX often arrives rotated.")]
+        [SerializeField] private float hullYawOffsetDeg = -90f;
 
         private GameObject _activeHull;
         private string _activeId;
@@ -26,24 +28,6 @@ namespace ShipBridgePrototype
         public string ActiveVesselId => _activeId;
         public VesselDefinition ActiveDefinition =>
             string.IsNullOrEmpty(_activeId) ? VesselCatalog.All[0] : VesselCatalog.Get(VesselCatalog.IndexOf(_activeId));
-
-        /// <summary>
-        /// World-Y offset from the ship pivot where the ocean surface should sit so the
-        /// active hull floats with a believable freeboard (deck above water).
-        /// </summary>
-        public float DesignWaterLevelOffsetFromPivot
-        {
-            get
-            {
-                var def = ActiveDefinition;
-                float draft = GetDesignDraftM(def);
-                // Deck at local Y≈0 → world Y = pivotY - BridgeHeightAboveDeck.
-                // Waterline is one draft above the keel; keel ≈ mesh bounds min Y.
-                float keelLocalY = GetMeshKeelLocalY();
-                float waterLocalY = keelLocalY + draft;
-                return -def.BridgeHeightAboveDeckM + waterLocalY;
-            }
-        }
 
         private void Awake()
         {
@@ -75,9 +59,10 @@ namespace ShipBridgePrototype
         public void BindPivot(Transform pivot)
         {
             shipPivot = pivot;
-            // Always attach under the oriented ship pivot so hull +Z follows the
-            // front-window forward (not the unrotated ShipBridgeSystems root).
-            EnsureHullParent();
+            if (hullParent == null && pivot != null)
+            {
+                EnsureHullParent();
+            }
 
             if (!string.IsNullOrEmpty(_activeId))
             {
@@ -126,57 +111,6 @@ namespace ShipBridgePrototype
             instance.name = $"Hull_{def.Id}";
             OptimizeForUnity(instance);
             return instance;
-        }
-
-        private static float GetDesignDraftM(VesselDefinition def)
-        {
-            try
-            {
-                var cfg = def.CreateConfig != null ? def.CreateConfig() : null;
-                if (cfg == null)
-                {
-                    return 5.5f;
-                }
-
-                if (cfg.Clarke.T > 0.5)
-                {
-                    return (float)cfg.Clarke.T;
-                }
-
-                if (cfg.MmgBasic.d > 0.5)
-                {
-                    return (float)cfg.MmgBasic.d;
-                }
-            }
-            catch
-            {
-                // Fall through to default estimate.
-            }
-
-            return 5.5f;
-        }
-
-        private float GetMeshKeelLocalY()
-        {
-            if (_activeHull == null)
-            {
-                return -6f;
-            }
-
-            var filters = _activeHull.GetComponentsInChildren<MeshFilter>(true);
-            var minY = float.PositiveInfinity;
-            for (int i = 0; i < filters.Length; i++)
-            {
-                var mesh = filters[i] != null ? filters[i].sharedMesh : null;
-                if (mesh == null)
-                {
-                    continue;
-                }
-
-                minY = Mathf.Min(minY, mesh.bounds.min.y);
-            }
-
-            return float.IsInfinity(minY) ? -6f : minY;
         }
 
         private static void OptimizeForUnity(GameObject root)
@@ -245,10 +179,10 @@ namespace ShipBridgePrototype
             }
 
             // Deck at local Y≈0 in the FBX. Bridge floor is at the pivot (room floor).
-            // HullYawDeg (default 180) flips Blender -Z hulls so the bow/deck runs out
-            // the front windows; then nudge slightly forward of the room center.
+            // Place deck below the bridge by BridgeHeightAboveDeckM and push the attach
+            // point slightly forward so the bow runs out toward the ocean windows.
             _activeHull.transform.SetParent(hullParent, false);
-            _activeHull.transform.localRotation = Quaternion.Euler(0f, def.HullYawDeg, 0f);
+            _activeHull.transform.localRotation = Quaternion.Euler(0f, hullYawOffsetDeg, 0f);
             _activeHull.transform.localScale = Vector3.one * Mathf.Max(0.01f, def.VisualScale);
             _activeHull.transform.localPosition = new Vector3(
                 fineTuneOffset.x,
@@ -279,42 +213,27 @@ namespace ShipBridgePrototype
 
         private void EnsureHullParent()
         {
+            if (hullParent != null)
+            {
+                return;
+            }
+
             if (shipPivot == null)
             {
                 ResolvePivot();
             }
 
             var parent = shipPivot != null ? shipPivot : transform;
-
-            if (hullParent == null)
+            var existing = parent.Find("VesselHullRoot");
+            if (existing != null)
             {
-                var existing = parent.Find("VesselHullRoot");
-                if (existing == null)
-                {
-                    // Also reclaim a hull root created early under this component.
-                    var orphan = transform.Find("VesselHullRoot");
-                    existing = orphan != null ? orphan : GameObject.Find("VesselHullRoot")?.transform;
-                }
-
-                if (existing != null)
-                {
-                    hullParent = existing;
-                }
-                else
-                {
-                    var go = new GameObject("VesselHullRoot");
-                    hullParent = go.transform;
-                }
+                hullParent = existing;
+                return;
             }
 
-            if (hullParent.parent != parent)
-            {
-                hullParent.SetParent(parent, false);
-            }
-
-            hullParent.localPosition = Vector3.zero;
-            hullParent.localRotation = Quaternion.identity;
-            hullParent.localScale = Vector3.one;
+            var go = new GameObject("VesselHullRoot");
+            go.transform.SetParent(parent, false);
+            hullParent = go.transform;
         }
     }
 }

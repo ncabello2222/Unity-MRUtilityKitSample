@@ -3,17 +3,21 @@ using System;
 namespace NavigationSim.Core
 {
     /// <summary>
-    /// Abstraction over the visual ocean (§9.2 of the master plan). Any render
-    /// asset is hidden behind this; use <see cref="SimpleOceanSurface"/> until a
-    /// replacement Unity adapter is wired.
+    /// Abstraction over the visual ocean. Render backends (North Star iFFT ocean
+    /// or a simple analytic surface) are hidden behind this. The Unity adapter
+    /// (<c>NorthStarOceanAdapter</c>) is the only place that may reference the
+    /// Meta Utilities ocean types directly.
     /// </summary>
     public interface IOceanSurface
     {
+        /// <summary>
+        /// Wave elevation [m] relative to mean sea level at geographic East/North.
+        /// </summary>
         double SampleHeight(double east, double north, double timeS);
 
         /// <summary>
-        /// Drive the visual ocean's modular phase / inverse heading so waves
-        /// scroll under the fixed bridge. No-op for analytic surfaces.
+        /// Drive the visual ocean so waves scroll under the fixed bridge.
+        /// No-op for analytic surfaces.
         /// </summary>
         void SetVirtualShipPosition(double east, double north, double headingDeg);
     }

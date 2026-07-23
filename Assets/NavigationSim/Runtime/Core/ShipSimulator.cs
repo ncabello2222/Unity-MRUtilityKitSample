@@ -150,7 +150,7 @@ namespace NavigationSim.Core
             State.FuelUsedKg = Fuel.FuelUsedKg;
 
             // ── Visual seakeeping channel ───────────────────────────────────
-            Waves.Update(env, State.PsiRad, State.StwMs, ShipLength, ShipBeam, dt);
+            Waves.Update(env, State, ShipLength, ShipBeam, dt);
             State.HeaveM = Waves.HeaveM;
             State.RollDeg = Waves.RollDeg;
             State.PitchDeg = Waves.PitchDeg;

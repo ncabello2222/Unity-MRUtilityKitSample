@@ -23,8 +23,8 @@ namespace ShipBridgePrototype
         [SerializeField] private float seakeepingVisualGain = 1f;
 
         [Tooltip(
-            "If off (default), only heave + yaw move ExteriorWorld. Pitch/roll stay off so a " +
-            "flat Crest ocean stays locked to terrain vertically. Enable only if the exterior " +
+            "If off (default), only heave + yaw move ExteriorWorld. Pitch/roll stay off so the " +
+            "NorthStar ocean stays locked to terrain vertically. Enable only if the exterior " +
             "should physically tilt.")]
         [SerializeField] private bool applySeakeepingAttitudeToExterior = false;
 
@@ -182,8 +182,8 @@ namespace ShipBridgePrototype
                 (float)runner.InterpHeave * gain,
                 (float)runner.InterpNorth);
 
-            // Yaw always. Pitch/roll only if explicitly enabled — Crest water is world-flat,
-            // so tilting ExteriorWorld makes the shoreline slide vs the ocean surface.
+            // Yaw always. Pitch/roll only if explicitly enabled — tilting ExteriorWorld can
+            // make the shoreline slide vs the NorthStar ocean surface.
             float pitch = applySeakeepingAttitudeToExterior ? (float)runner.InterpPitchDeg * gain : 0f;
             float roll = applySeakeepingAttitudeToExterior ? -(float)runner.InterpRollDeg * gain : 0f;
             var attitude = Quaternion.Euler(pitch, (float)runner.InterpPsiDeg, roll);
