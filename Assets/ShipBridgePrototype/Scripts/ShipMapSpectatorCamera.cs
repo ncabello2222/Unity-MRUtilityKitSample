@@ -218,7 +218,8 @@ namespace ShipBridgePrototype
             // heading, so the map stays north-up while the room/hull appear to turn.
             var runner = NavigationSimRunner.Instance;
             var psiDeg = runner != null ? (float)runner.InterpPsiDeg : 0f;
-            var upWorld = Quaternion.AngleAxis(-psiDeg, Vector3.up) * north0;
+            // Same yaw sign as ExteriorWorldMotion.ResolveShipPose.
+            var upWorld = Quaternion.AngleAxis(psiDeg, Vector3.up) * north0;
 
             _cam.orthographicSize = orthographicSize;
             transform.SetPositionAndRotation(

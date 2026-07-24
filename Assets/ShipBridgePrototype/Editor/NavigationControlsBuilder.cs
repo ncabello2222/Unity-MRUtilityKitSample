@@ -85,7 +85,7 @@ namespace ShipBridgePrototype.Editor
                 var soPanel = new SerializedObject(panel);
                 FixPanelFrameGrab(root, soPanel);
 
-                // Ensure every instrument also has distance grab.
+                // Near grab only for instruments (no distance grab).
                 var rotateRoots = new[]
                 {
                     root.transform.Find("ControlsAnchor/SteeringWheel/Wheel"),
@@ -96,7 +96,7 @@ namespace ShipBridgePrototype.Editor
                 {
                     if (rotateRoots[i] != null)
                     {
-                        EnsureDistanceGrab(rotateRoots[i].gameObject);
+                        RemoveDistanceGrab(rotateRoots[i].gameObject);
                         EnlargeChildGrabColliders(rotateRoots[i]);
                     }
                 }
@@ -109,7 +109,7 @@ namespace ShipBridgePrototype.Editor
             }
 
             EnlargeControllerGrabVolumes();
-            EditorUtility.DisplayDialog("Grab Fix", "Panel/control grab + distance grab repaired.", "OK");
+            EditorUtility.DisplayDialog("Grab Fix", "Panel/control near-grab repaired (no distance grab on instruments).", "OK");
         }
 
         private static Material LoadOrCreateMat(string path, Color color)
@@ -456,14 +456,14 @@ namespace ShipBridgePrototype.Editor
             EnlargeChildGrabColliders(frameGrab);
 
             SetupFreeGrab(frameGrab.gameObject, panelRoot.transform);
-            EnsureDistanceGrab(frameGrab.gameObject);
+            RemoveDistanceGrab(frameGrab.gameObject);
         }
 
         private static void SetupRotateGrab(GameObject target, OneGrabRotateTransformer.Axis axis, float minAngle, float maxAngle)
         {
             EnsureRigidbody(target);
             RunGrabWizard(target);
-            EnsureDistanceGrab(target);
+            RemoveDistanceGrab(target);
             EnlargeChildGrabColliders(target.transform);
 
             var grabbable = target.GetComponent<Grabbable>() ?? target.GetComponentInChildren<Grabbable>();
@@ -540,6 +540,34 @@ namespace ShipBridgePrototype.Editor
                 "CreateWithDefaults",
                 BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.FlattenHierarchy);
             create.MakeGenericMethod(distanceWizard).Invoke(null, new object[] { target, false, null });
+        }
+
+        private static void RemoveDistanceGrab(GameObject target)
+        {
+            if (target == null)
+            {
+                return;
+            }
+
+            foreach (var c in target.GetComponentsInChildren<DistanceGrabInteractable>(true))
+            {
+                UnityEngine.Object.DestroyImmediate(c);
+            }
+
+            foreach (var c in target.GetComponentsInChildren<DistanceHandGrabInteractable>(true))
+            {
+                UnityEngine.Object.DestroyImmediate(c);
+            }
+
+            var transforms = target.GetComponentsInChildren<Transform>(true);
+            for (var i = transforms.Length - 1; i >= 0; i--)
+            {
+                if (transforms[i] != null &&
+                    transforms[i].name.IndexOf("Distance", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    UnityEngine.Object.DestroyImmediate(transforms[i].gameObject);
+                }
+            }
         }
 
         private static void RunGrabWizard(GameObject target)

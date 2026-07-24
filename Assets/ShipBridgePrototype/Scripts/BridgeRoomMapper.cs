@@ -22,7 +22,13 @@ namespace ShipBridgePrototype
         [SerializeField] private bool generateOnSceneLoaded = true;
         [SerializeField] private bool clearExistingBeforeGenerate = true;
 
+        [Header("Mapped Room Objects")]
+        [Tooltip("Maximum vertical gap allowed between a furniture volume and the mapped floor.")]
+        [SerializeField] [Min(0f)] private float furnitureFloorContactTolerance = 0.15f;
+
         [Header("Wall / Window")]
+        [Tooltip("If disabled, every mapped wall is generated as a solid wall without synthetic windows.")]
+        [SerializeField] private bool generateBridgeWindows;
         [SerializeField] private float wallThickness = 0.06f;
         [SerializeField] private float windowWaistHeight = 0.9f;
         [SerializeField] private float windowTopClearance = 0.12f;
@@ -224,7 +230,7 @@ namespace ShipBridgePrototype
             Debug.Log("[BridgeRoomMapper] Bow calibration confirmed and saved.");
         }
 
-        /// <summary>Swap Front/Aft among the long-wall pair and regenerate.</summary>
+        /// <summary>Swap Front/Aft among the current pair and regenerate.</summary>
         public void FlipFrontAndAft()
         {
             if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) ||
@@ -236,8 +242,6 @@ namespace ShipBridgePrototype
                 return;
             }
 
-            _classifiedWalls[WallRole.Front] = aft;
-            _classifiedWalls[WallRole.Aft] = front;
             if (_referenceFrame != null)
             {
                 _referenceFrame.SetCalibrated(false);
@@ -245,6 +249,74 @@ namespace ShipBridgePrototype
 
             // Rebuild with the swapped Front, without trying to restore the old save.
             GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: false, forcedFront: aft);
+        }
+
+        /// <summary>
+        /// Cycle to the next MRUK wall face as Front (any wall), then regenerate.
+        /// </summary>
+        public void SelectNextFrontWall()
+        {
+            if (_activeRoom == null)
+            {
+                Debug.LogWarning("[BridgeRoomMapper] Cannot select wall: no active room.");
+                return;
+            }
+
+            var walls = GetBridgeWallCandidates(_activeRoom);
+            if (walls.Count == 0)
+            {
+                Debug.LogWarning("[BridgeRoomMapper] Cannot select wall: no wall candidates.");
+                return;
+            }
+
+            var currentIndex = 0;
+            if (_classifiedWalls.TryGetValue(WallRole.Front, out var current) && current != null)
+            {
+                var found = walls.IndexOf(current);
+                if (found >= 0)
+                {
+                    currentIndex = found;
+                }
+            }
+
+            var next = walls[(currentIndex + 1) % walls.Count];
+            if (_referenceFrame != null)
+            {
+                _referenceFrame.SetCalibrated(false);
+            }
+
+            GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: false, forcedFront: next);
+            Debug.Log(
+                $"[BridgeRoomMapper] Selected wall {(currentIndex + 1) % walls.Count + 1}/{walls.Count} " +
+                $"as Front: {next.name} ({GetWallWidth(next):F2}m).");
+        }
+
+        public string GetFrontWallDisplayName()
+        {
+            if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) || front == null)
+            {
+                return "(ninguna)";
+            }
+
+            return $"{front.name} ({GetWallWidth(front):F2} m)";
+        }
+
+        public int GetFrontWallSelectionIndex(out int wallCount)
+        {
+            wallCount = 0;
+            if (_activeRoom == null)
+            {
+                return -1;
+            }
+
+            var walls = GetBridgeWallCandidates(_activeRoom);
+            wallCount = walls.Count;
+            if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) || front == null)
+            {
+                return -1;
+            }
+
+            return walls.IndexOf(front);
         }
 
         /// <summary>Clear saved bow and regenerate with a camera-proposed Front.</summary>
@@ -299,8 +371,8 @@ namespace ShipBridgePrototype
                 return false;
             }
 
-            // Longitudinal pair = opposite-facing pair with the greatest mean length.
-            // Short walls must never become Front/Aft when a longer opposite pair exists.
+            // Default proposal uses the opposite-facing pair with the greatest mean length.
+            // The user can later force ANY wall as Front via SelectNextFrontWall().
             if (!TryPickLongitudinalPair(room, sorted, out var longA, out var longB, out var meanLength))
             {
                 Debug.LogWarning(
@@ -317,24 +389,14 @@ namespace ShipBridgePrototype
                 return false;
             }
 
-            var fa = Flatten(room.GetFacingDirection(longA)).normalized;
-            var fb = Flatten(room.GetFacingDirection(longB)).normalized;
-            if (fa.sqrMagnitude > 1e-6f && fb.sqrMagnitude > 1e-6f &&
-                Vector3.Dot(fa, fb) > oppositeNormalMaxDot)
-            {
-                Debug.LogWarning(
-                    "[BridgeRoomMapper] Selected Front/Aft normals are not clearly opposite. " +
-                    $"dot={Vector3.Dot(fa, fb):F2}. Classification may be unreliable.");
-            }
-
             MRUKAnchor front;
-            if (forcedFront == longA || forcedFront == longB)
+            if (forcedFront != null && walls.Contains(forcedFront))
             {
                 front = forcedFront;
                 _calibrationRestored = false;
             }
             else if (preferRestoredCalibration &&
-                     TryRestoreFrontFromCalibration(room, longA, longB, out front))
+                     TryRestoreFrontFromCalibration(room, walls, out front))
             {
                 _calibrationRestored = true;
             }
@@ -344,7 +406,26 @@ namespace ShipBridgePrototype
                 _calibrationRestored = false;
             }
 
-            var aft = front == longA ? longB : longA;
+            var aft = FindBestOppositeWall(room, walls, front);
+            if (aft == null)
+            {
+                aft = front == longA ? longB : longA;
+            }
+
+            var fa = Flatten(room.GetFacingDirection(front));
+            var fb = Flatten(room.GetFacingDirection(aft));
+            if (fa.sqrMagnitude > 1e-6f && fb.sqrMagnitude > 1e-6f)
+            {
+                fa.Normalize();
+                fb.Normalize();
+                if (Vector3.Dot(fa, fb) > oppositeNormalMaxDot)
+                {
+                    Debug.LogWarning(
+                        "[BridgeRoomMapper] Selected Front/Aft normals are not clearly opposite. " +
+                        $"dot={Vector3.Dot(fa, fb):F2}. Classification may be unreliable.");
+                }
+            }
+
             _classifiedWalls[WallRole.Front] = front;
             _classifiedWalls[WallRole.Aft] = aft;
 
@@ -469,12 +550,11 @@ namespace ShipBridgePrototype
 
         private bool TryRestoreFrontFromCalibration(
             MRUKRoom room,
-            MRUKAnchor longA,
-            MRUKAnchor longB,
+            List<MRUKAnchor> walls,
             out MRUKAnchor front)
         {
             front = null;
-            if (!BridgeCalibrationStore.TryLoad(room, out var record))
+            if (!BridgeCalibrationStore.TryLoad(room, out var record) || walls == null || walls.Count == 0)
             {
                 return false;
             }
@@ -487,21 +567,69 @@ namespace ShipBridgePrototype
 
             savedForward.Normalize();
             var roomCenter = room.GetRoomBounds().center;
-            var outA = OutwardHorizontal(room, longA, roomCenter);
-            var outB = OutwardHorizontal(room, longB, roomCenter);
-            var dotA = Vector3.Dot(outA, savedForward);
-            var dotB = Vector3.Dot(outB, savedForward);
-            var best = Mathf.Max(dotA, dotB);
-            if (best < restoreDotThreshold)
+            var bestDot = float.NegativeInfinity;
+            MRUKAnchor bestWall = null;
+            foreach (var wall in walls)
+            {
+                if (wall == null)
+                {
+                    continue;
+                }
+
+                var outward = OutwardHorizontal(room, wall, roomCenter);
+                var dot = Vector3.Dot(outward, savedForward);
+                if (dot > bestDot)
+                {
+                    bestDot = dot;
+                    bestWall = wall;
+                }
+            }
+
+            if (bestWall == null || bestDot < restoreDotThreshold)
             {
                 Debug.LogWarning(
-                    $"[BridgeRoomMapper] Saved bow vector does not match long walls " +
-                    $"(bestDot={best:F2} < {restoreDotThreshold:F2}). Recalibration required.");
+                    $"[BridgeRoomMapper] Saved bow vector does not match any wall " +
+                    $"(bestDot={bestDot:F2} < {restoreDotThreshold:F2}). Recalibration required.");
                 return false;
             }
 
-            front = dotA >= dotB ? longA : longB;
+            front = bestWall;
             return true;
+        }
+
+        private static MRUKAnchor FindBestOppositeWall(
+            MRUKRoom room,
+            List<MRUKAnchor> walls,
+            MRUKAnchor front)
+        {
+            if (room == null || walls == null || front == null)
+            {
+                return null;
+            }
+
+            var roomCenter = room.GetRoomBounds().center;
+            var frontOut = OutwardHorizontal(room, front, roomCenter);
+            MRUKAnchor best = null;
+            var bestScore = float.PositiveInfinity;
+
+            foreach (var wall in walls)
+            {
+                if (wall == null || wall == front)
+                {
+                    continue;
+                }
+
+                var outward = OutwardHorizontal(room, wall, roomCenter);
+                // Prefer most opposite outward; break ties by wall width.
+                var score = Vector3.Dot(frontOut, outward) - 0.01f * GetWallWidth(wall);
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    best = wall;
+                }
+            }
+
+            return best;
         }
 
         private static MRUKAnchor ProposeFrontFromCamera(MRUKRoom room, MRUKAnchor a, MRUKAnchor b)
@@ -732,6 +860,12 @@ namespace ShipBridgePrototype
         {
             if (wall == null || !wall.PlaneRect.HasValue)
             {
+                return;
+            }
+
+            if (!generateBridgeWindows)
+            {
+                CreateSolidWall(wall, parent, role.ToString());
                 return;
             }
 
@@ -991,50 +1125,65 @@ namespace ShipBridgePrototype
 
             foreach (var anchor in room.Anchors)
             {
-                if (anchor == null || IsStructuralLabel(anchor.Label))
+                if (!IsFloorStandingFurniture(anchor, room))
                 {
                     continue;
                 }
 
-                if (anchor.VolumeBounds.HasValue)
-                {
-                    var bounds = anchor.VolumeBounds.Value;
-                    var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    go.name = $"Obj_{anchor.Label}_{anchor.name}";
-                    go.transform.SetParent(objectsRoot, false);
-                    go.transform.position = anchor.transform.TransformPoint(bounds.center);
-                    go.transform.rotation = anchor.transform.rotation;
-                    go.transform.localScale = bounds.size;
-                    ApplyMaterial(go, roomObjectMaterial);
-                    continue;
-                }
-
-                if (anchor.PlaneRect.HasValue)
-                {
-                    // Plane-only scene elements (e.g. wall art / screens) as thin boxes.
-                    var rect = anchor.PlaneRect.Value;
-                    var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                    go.name = $"Obj_{anchor.Label}_{anchor.name}";
-                    go.transform.SetParent(objectsRoot, false);
-                    go.transform.position = anchor.transform.TransformPoint(new Vector3(rect.center.x, rect.center.y, -0.02f));
-                    go.transform.rotation = anchor.transform.rotation;
-                    go.transform.localScale = new Vector3(rect.width, rect.height, 0.04f);
-                    ApplyMaterial(go, roomObjectMaterial);
-                }
+                var bounds = anchor.VolumeBounds.Value;
+                var go = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                go.name = $"Obj_{anchor.Label}_{anchor.name}";
+                go.transform.SetParent(objectsRoot, false);
+                go.transform.position = anchor.transform.TransformPoint(bounds.center);
+                go.transform.rotation = anchor.transform.rotation;
+                go.transform.localScale = bounds.size;
+                ApplyMaterial(go, roomObjectMaterial);
             }
         }
 
-        private static bool IsStructuralLabel(MRUKAnchor.SceneLabels label)
+        private bool IsFloorStandingFurniture(MRUKAnchor anchor, MRUKRoom room)
         {
-            return label.HasFlag(MRUKAnchor.SceneLabels.FLOOR) ||
-                   label.HasFlag(MRUKAnchor.SceneLabels.CEILING) ||
-                   label.HasFlag(MRUKAnchor.SceneLabels.WALL_FACE) ||
-                   label.HasFlag(MRUKAnchor.SceneLabels.INVISIBLE_WALL_FACE) ||
-                   label.HasFlag(MRUKAnchor.SceneLabels.INNER_WALL_FACE) ||
-                   label.HasFlag(MRUKAnchor.SceneLabels.GLOBAL_MESH) ||
-                   // Bridge windows/doors are generated by this component; ignore mapped openings.
-                   label.HasFlag(MRUKAnchor.SceneLabels.WINDOW_FRAME) ||
-                   label.HasFlag(MRUKAnchor.SceneLabels.DOOR_FRAME);
+            if (anchor == null || room?.FloorAnchor == null || !anchor.VolumeBounds.HasValue)
+            {
+                return false;
+            }
+
+            var furnitureLabels = MRUKAnchor.SceneLabels.TABLE |
+                                  MRUKAnchor.SceneLabels.COUCH |
+                                  MRUKAnchor.SceneLabels.BED |
+                                  MRUKAnchor.SceneLabels.STORAGE;
+            if (!anchor.HasAnyLabel(furnitureLabels))
+            {
+                return false;
+            }
+
+            var floorHeight = room.FloorAnchor.transform.position.y;
+            return GetVolumeWorldBottom(anchor) <= floorHeight + furnitureFloorContactTolerance;
+        }
+
+        private static float GetVolumeWorldBottom(MRUKAnchor anchor)
+        {
+            var bounds = anchor.VolumeBounds.Value;
+            var min = bounds.min;
+            var max = bounds.max;
+            var bottom = float.PositiveInfinity;
+
+            for (var x = 0; x < 2; x++)
+            {
+                for (var y = 0; y < 2; y++)
+                {
+                    for (var z = 0; z < 2; z++)
+                    {
+                        var corner = new Vector3(
+                            x == 0 ? min.x : max.x,
+                            y == 0 ? min.y : max.y,
+                            z == 0 ? min.z : max.z);
+                        bottom = Mathf.Min(bottom, anchor.transform.TransformPoint(corner).y);
+                    }
+                }
+            }
+
+            return bottom;
         }
 
         private void CreateExteriorEnvironment(MRUKRoom room, Transform root)

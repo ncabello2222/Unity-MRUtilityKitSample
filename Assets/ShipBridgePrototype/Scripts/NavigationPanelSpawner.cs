@@ -18,7 +18,8 @@ namespace ShipBridgePrototype
         [SerializeField] [Range(0f, 1f)] private float heightBetweenHandsAndHead = 0.55f;
 
         [Header("Input")]
-        [SerializeField] private OVRInput.RawButton spawnButton = OVRInput.RawButton.A;
+        [Tooltip("Virtual button One maps to A on RTouch (Meta OVRInput docs).")]
+        [SerializeField] private OVRInput.Button spawnButton = OVRInput.Button.One;
 
         [Header("References")]
         [SerializeField] private OVRCameraRig cameraRig;
@@ -35,21 +36,32 @@ namespace ShipBridgePrototype
 
         private void Update()
         {
-            // Primary: Quest controller (A by default). Keyboard only in Editor via Input System.
-            var pressed = OVRInput.GetDown(spawnButton);
-#if UNITY_EDITOR
-            if (!pressed && Keyboard.current != null && Keyboard.current.aKey.wasPressedThisFrame)
-            {
-                pressed = true;
-            }
-#endif
-
-            if (!pressed)
+            if (!WasSpawnPressed())
             {
                 return;
             }
 
             SpawnOrReposition();
+        }
+
+        private bool WasSpawnPressed()
+        {
+            // Query RTouch / Touch explicitly. Controller.Active often sticks on Hands while
+            // the comprehensive ISDK rig is running, so RawButton.A with Active never fires.
+            if (OVRInput.GetDown(spawnButton, OVRInput.Controller.RTouch) ||
+                OVRInput.GetDown(OVRInput.RawButton.A, OVRInput.Controller.RTouch) ||
+                OVRInput.GetDown(spawnButton, OVRInput.Controller.Touch))
+            {
+                return true;
+            }
+
+#if UNITY_EDITOR
+            if (Keyboard.current != null && Keyboard.current.aKey.wasPressedThisFrame)
+            {
+                return true;
+            }
+#endif
+            return false;
         }
 
         public void SpawnOrReposition()
@@ -72,6 +84,7 @@ namespace ShipBridgePrototype
 
             if (!TryGetSpawnPose(out var position, out var rotation))
             {
+                Debug.LogWarning("[NavigationPanelSpawner] Could not resolve spawn pose.", this);
                 return;
             }
 
@@ -79,6 +92,7 @@ namespace ShipBridgePrototype
             {
                 _activePanel = Instantiate(panelPrefab, position, rotation);
                 _activePanel.name = "NavigationPanel";
+                Debug.Log($"[NavigationPanelSpawner] Spawned panel at {position}.", _activePanel);
             }
             else
             {
@@ -87,6 +101,8 @@ namespace ShipBridgePrototype
                 {
                     _activePanel.gameObject.SetActive(true);
                 }
+
+                Debug.Log($"[NavigationPanelSpawner] Repositioned panel at {position}.", _activePanel);
             }
         }
 
@@ -122,6 +138,7 @@ namespace ShipBridgePrototype
             var height = Mathf.Lerp(handY, head.position.y, heightBetweenHandsAndHead);
             position = head.position + forward * spawnDistance;
             position.y = height;
+            // +Z away from user so panel front (-Z / Unity UI) faces them.
             rotation = Quaternion.LookRotation(forward, Vector3.up);
             return true;
         }

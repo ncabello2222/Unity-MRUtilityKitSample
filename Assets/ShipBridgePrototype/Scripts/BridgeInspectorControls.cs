@@ -47,7 +47,8 @@ namespace ShipBridgePrototype
 
         [Header("Bow calibration (Entrega 1)")]
         [SerializeField] private bool confirmBow;
-        [SerializeField] private bool flipBow;
+        [Tooltip("Cycle to the next MRUK wall as Front / adelante.")]
+        [SerializeField] private bool selectNextWall;
         [SerializeField] private bool clearBowCalibration;
 
         [Header("Readouts (debug)")]
@@ -162,10 +163,10 @@ namespace ShipBridgePrototype
                 cal?.ConfirmCurrentFront();
             }
 
-            if (flipBow)
+            if (selectNextWall)
             {
-                flipBow = false;
-                cal?.FlipFrontAndAft();
+                selectNextWall = false;
+                cal?.SelectNextWall();
             }
 
             if (clearBowCalibration)

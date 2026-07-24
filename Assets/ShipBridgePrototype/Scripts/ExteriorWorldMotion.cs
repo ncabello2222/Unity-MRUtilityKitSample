@@ -218,6 +218,9 @@ namespace ShipBridgePrototype
             // make the shoreline slide vs the NorthStar ocean surface.
             float pitch = applySeakeepingAttitudeToExterior ? (float)runner.InterpPitchDeg * gain : 0f;
             float roll = applySeakeepingAttitudeToExterior ? -(float)runner.InterpRollDeg * gain : 0f;
+            // Sim ψ is compass heading (0=bow/N, + = starboard). Applied as Unity yaw
+            // with the sign that matches port/starboard on mesh exteriors (Terrain could
+            // not rotate, so an earlier negate looked "correct" for the wrong reason).
             var attitude = Quaternion.Euler(pitch, (float)runner.InterpPsiDeg, roll);
 
             shipPos = SimOriginInitialPosition + _shipForwardBasis * localOffset;
@@ -226,11 +229,13 @@ namespace ShipBridgePrototype
 
         private void ApplyInverseExteriorPose()
         {
-            // Room stays fixed. A geographic point G maps to Unity as:
-            //   X' = ship0 * ship^-1 * G
-            // so the whole exterior rigidly orbits the maneuvering origin ahead of the
-            // room (not ExteriorWorld's own origin, and not the bridge). Pure yaw then
-            // shows up on the bridge as rotation plus the lateral stern sweep.
+            // Room stays fixed. Geographic G maps to Unity as:
+            //   X' = shipPos0 + R0 * R^-1 * (G - shipPos)
+            // so the CURRENT sim position (East/North) stays locked under shipPos0.
+            // shipPos0 is the maneuvering origin (midships), SimOriginForwardFromBridgeM
+            // ahead of the bridge — NOT the hull/bridge pivot. From a Scene top-down on
+            // the stern hull this looks like scenery "orbiting" a point ahead of the ship;
+            // from the bridge it is the correct stern sweep in a turn.
             ResolveShipPose(out var shipPos, out var shipRot);
 
             var shipPos0 = SimOriginInitialPosition;
@@ -270,18 +275,35 @@ namespace ShipBridgePrototype
         }
 
 #if UNITY_EDITOR
-        private void OnDrawGizmosSelected()
+        private void OnDrawGizmos()
         {
             if (!_hasInitialPose)
             {
                 return;
             }
 
+            // Yellow = bridge / hull pivot (fixed in Unity).
+            // Red = midships lock: exterior yaw/translate keeps the CURRENT sim
+            // (East/North) under this point. Do NOT draw the pre-inverse "ghost"
+            // shipPos — that drifts away in world space and looks like a bug.
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(_initialPivotPosition, 1.5f);
-            Gizmos.DrawLine(_initialPivotPosition, SimOriginInitialPosition);
+            var lockPos = SimOriginInitialPosition;
+            Gizmos.DrawLine(_initialPivotPosition, lockPos);
             Gizmos.color = Color.red;
-            Gizmos.DrawWireSphere(SimOriginInitialPosition, 1.5f);
+            Gizmos.DrawWireSphere(lockPos, 2f);
+
+            if (!Application.isPlaying || NavigationSimRunner.Instance == null)
+            {
+                return;
+            }
+
+            // Green ray on the lock: sim heading in the FIXED room frame (same yaw sign
+            // as ResolveShipPose).
+            var psiDeg = (float)NavigationSimRunner.Instance.InterpPsiDeg;
+            var headingRoom = _shipForwardBasis * Quaternion.Euler(0f, psiDeg, 0f);
+            Gizmos.color = Color.green;
+            Gizmos.DrawRay(lockPos, headingRoom * Vector3.forward * 25f);
         }
 #endif
     }
