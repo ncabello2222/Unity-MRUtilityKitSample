@@ -16,6 +16,13 @@ namespace NavigationSim.Core
         /// <summary>How far ahead of the room pivot the hull attach point sits [m].</summary>
         public float HullForwardFromPivotM;
         /// <summary>
+        /// Distance from the bridge (room center) forward to the maneuvering origin the
+        /// simulation state tracks (midships) [m]. Hulls in this project put the bridge
+        /// at the stern, so this is ≈ HullForwardFromPivotM + L/2. The exterior world
+        /// yaws around this point, which adds the lateral bridge sweep during turns.
+        /// </summary>
+        public float SimOriginForwardFromBridgeM;
+        /// <summary>
         /// Yaw applied to the FBX. Blender hulls in this project extend along -Z from a
         /// stern-near origin; 180° puts the bow out the front bridge windows.
         /// </summary>
@@ -39,6 +46,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Original",
                 BridgeHeightAboveDeckM = 12f,
                 HullForwardFromPivotM = 2f,
+                SimOriginForwardFromBridgeM = 47f,
                 CreateConfig = VesselConfig.CreateGenericCoaster
             },
             new VesselDefinition
@@ -48,6 +56,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Tug",
                 BridgeHeightAboveDeckM = 4.5f,
                 HullForwardFromPivotM = 1.5f,
+                SimOriginForwardFromBridgeM = 16.5f,
                 CreateConfig = CreateTug
             },
             new VesselDefinition
@@ -57,6 +66,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Fishing",
                 BridgeHeightAboveDeckM = 5.5f,
                 HullForwardFromPivotM = 1.5f,
+                SimOriginForwardFromBridgeM = 22.5f,
                 CreateConfig = CreateFishing
             },
             new VesselDefinition
@@ -66,6 +76,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Ferry",
                 BridgeHeightAboveDeckM = 9f,
                 HullForwardFromPivotM = 2f,
+                SimOriginForwardFromBridgeM = 52f,
                 CreateConfig = CreateFerry
             },
             new VesselDefinition
@@ -75,6 +86,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Bulk",
                 BridgeHeightAboveDeckM = 14f,
                 HullForwardFromPivotM = 3f,
+                SimOriginForwardFromBridgeM = 115.5f,
                 CreateConfig = CreateBulk
             },
             new VesselDefinition
@@ -84,6 +96,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Container",
                 BridgeHeightAboveDeckM = 20f,
                 HullForwardFromPivotM = 3f,
+                SimOriginForwardFromBridgeM = 143f,
                 CreateConfig = CreateContainer
             },
             new VesselDefinition
@@ -93,6 +106,7 @@ namespace NavigationSim.Core
                 HullResourcePath = "Vessels/Vessel_Bulk",
                 BridgeHeightAboveDeckM = 16f,
                 HullForwardFromPivotM = 3f,
+                SimOriginForwardFromBridgeM = 163f,
                 CreateConfig = VesselConfig.CreateKvlcc2
             }
         };

@@ -43,11 +43,12 @@ namespace Meta.Utilities.Environment
         public int Resolution => m_resolution;
 
         /// <summary>
-        /// Extra seconds added to the dispersion clock. Used by the ship bridge
-        /// adapter to approximate travel through the wave field (Taylor hypothesis)
-        /// while the ocean mesh stays centered on the player.
+        /// World-space XZ offset applied to the wave field as a spectral phase shift
+        /// (h(k) *= e^(i K·D)), i.e. an exact rigid translation of the whole surface.
+        /// Used by the ship bridge adapter so crests scroll under the fixed bridge in
+        /// the same frame as the terrain. Wrapped to patch periodicity internally.
         /// </summary>
-        public float AdditionalSimulationTime { get; set; }
+        public Vector2 FieldOffset { get; set; }
 
         private JobHandle m_jobHandle;
         private bool m_hasPendingJobs;
@@ -222,7 +223,14 @@ namespace Meta.Utilities.Environment
             // Calculate the iFFT
             var length = Square(m_resolution);
 
-            var dispersion = new OceanDispersionJob(m_dispersionTable, m_spectrum, m_heightBufferB, m_displacementBufferB, m_resolution, (Time.time + AdditionalSimulationTime) * Profile.OceanSettings.TimeScale);
+            // e^(i K·D) is periodic in the patch size, so wrapping keeps the phase
+            // small and float-exact no matter how far the ship has travelled.
+            var patchSize = Mathf.Max(1f, Profile.OceanSettings.PatchSize);
+            var phasePerCell = 2f * Mathf.PI / patchSize * new float2(
+                Mathf.Repeat(FieldOffset.x, patchSize),
+                Mathf.Repeat(FieldOffset.y, patchSize));
+
+            var dispersion = new OceanDispersionJob(m_dispersionTable, m_spectrum, m_heightBufferB, m_displacementBufferB, m_resolution, Time.time * Profile.OceanSettings.TimeScale, phasePerCell);
 
             m_jobHandle = dispersion.Schedule(length, BATCHCOUNT, m_jobHandle);
 

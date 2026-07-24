@@ -1,3 +1,4 @@
+using NavigationSim.Core;
 using NavigationSim.UnityLayer;
 using UnityEngine;
 
@@ -15,7 +16,7 @@ namespace ShipBridgePrototype
         [Header("References")]
         [SerializeField] private ShipControlState controlState;
         [SerializeField] private ExteriorWorldRoot exteriorWorld;
-        [Tooltip("World-space pivot for yaw (typically room/bridge center).")]
+        [Tooltip("Bridge anchor (room center). The ship's maneuvering origin sits ahead of this by the active vessel's SimOriginForwardFromBridgeM.")]
         [SerializeField] private Transform shipPivot;
 
         [Header("Visual response")]
@@ -33,12 +34,22 @@ namespace ShipBridgePrototype
         private bool _hasInitialPose;
         private Vector3 _initialPivotPosition;
         private Quaternion _shipForwardBasis = Quaternion.identity;
+        private float _simOriginForwardM;
 
         public ExteriorWorldRoot ExteriorWorld => exteriorWorld;
         public Transform ShipPivot => shipPivot;
         public Quaternion ShipForwardBasis => _shipForwardBasis;
         public Vector3 InitialPivotPosition => _initialPivotPosition;
         public bool HasInitialPose => _hasInitialPose;
+
+        /// <summary>
+        /// Unity-world anchor of the ship's maneuvering origin at psi = 0. The bridge
+        /// sits at InitialPivotPosition; the sim state (East/North/psi) tracks a point
+        /// SimOriginForwardFromBridgeM ahead of it, so the exterior yaws around this
+        /// point and the bridge sweeps laterally during turns like a real aft bridge.
+        /// </summary>
+        public Vector3 SimOriginInitialPosition =>
+            _initialPivotPosition + _shipForwardBasis * new Vector3(0f, 0f, _simOriginForwardM);
 
         private void Awake()
         {
@@ -69,7 +80,21 @@ namespace ShipBridgePrototype
                 }
             }
 
+            RefreshSimOriginOffset();
             ApplyInverseExteriorPose();
+        }
+
+        private void RefreshSimOriginOffset()
+        {
+            var runner = NavigationSimRunner.Instance;
+            if (runner == null)
+            {
+                return;
+            }
+
+            // Vessel switches call ResetShip(), so the anchor jump happens while the
+            // relative transform is identity and the exterior never pops.
+            _simOriginForwardM = VesselCatalog.Get(runner.ActiveVesselIndex).SimOriginForwardFromBridgeM;
         }
 
         /// <summary>Called by BridgeRoomMapper after exterior generation.</summary>
@@ -130,7 +155,7 @@ namespace ShipBridgePrototype
             var root = exteriorWorld.Root;
             var invShip0 = Quaternion.Inverse(_shipForwardBasis);
             _initialExteriorPosition =
-                shipPos + shipRot * (invShip0 * (root.position - _initialPivotPosition));
+                shipPos + shipRot * (invShip0 * (root.position - SimOriginInitialPosition));
             _initialExteriorRotation = shipRot * invShip0 * root.rotation;
         }
 
@@ -165,18 +190,20 @@ namespace ShipBridgePrototype
 
             var runner = NavigationSimRunner.EnsureInstance();
             runner.ResetShip();
+            RefreshSimOriginOffset();
         }
 
         /// <summary>
         /// Virtual ship pose in Unity world space. Sim North/East/psi with psi = 0
         /// along the initial forward basis: North → basis +Z, East → basis +X.
+        /// The pose is anchored at the maneuvering origin, not the bridge.
         /// </summary>
         private void ResolveShipPose(out Vector3 shipPos, out Quaternion shipRot)
         {
             var runner = NavigationSimRunner.Instance;
             if (runner == null)
             {
-                shipPos = _initialPivotPosition;
+                shipPos = SimOriginInitialPosition;
                 shipRot = _shipForwardBasis;
                 return;
             }
@@ -193,7 +220,7 @@ namespace ShipBridgePrototype
             float roll = applySeakeepingAttitudeToExterior ? -(float)runner.InterpRollDeg * gain : 0f;
             var attitude = Quaternion.Euler(pitch, (float)runner.InterpPsiDeg, roll);
 
-            shipPos = _initialPivotPosition + _shipForwardBasis * localOffset;
+            shipPos = SimOriginInitialPosition + _shipForwardBasis * localOffset;
             shipRot = _shipForwardBasis * attitude;
         }
 
@@ -201,11 +228,12 @@ namespace ShipBridgePrototype
         {
             // Room stays fixed. A geographic point G maps to Unity as:
             //   X' = ship0 * ship^-1 * G
-            // so the whole exterior rigidly orbits the ship pivot (not ExteriorWorld's
-            // own origin). Using quaternions avoids Matrix4x4.rotation extraction drift.
+            // so the whole exterior rigidly orbits the maneuvering origin ahead of the
+            // room (not ExteriorWorld's own origin, and not the bridge). Pure yaw then
+            // shows up on the bridge as rotation plus the lateral stern sweep.
             ResolveShipPose(out var shipPos, out var shipRot);
 
-            var shipPos0 = _initialPivotPosition;
+            var shipPos0 = SimOriginInitialPosition;
             var shipRot0 = _shipForwardBasis;
             var invShip = Quaternion.Inverse(shipRot);
 
@@ -213,6 +241,32 @@ namespace ShipBridgePrototype
             var newRot = shipRot0 * invShip * _initialExteriorRotation;
 
             exteriorWorld.Root.SetPositionAndRotation(newPos, newRot);
+        }
+
+        /// <summary>
+        /// Unity world position where the geographic point (east, north) renders under
+        /// the current inverse-exterior transform. Used by the ocean adapter to sample
+        /// the wave field in the exact frame the terrain is drawn in.
+        /// </summary>
+        public Vector3 GeoToWorld(double east, double north)
+        {
+            var virtualPos = SimOriginInitialPosition +
+                             _shipForwardBasis * new Vector3((float)east, 0f, (float)north);
+            ResolveShipPose(out var shipPos, out var shipRot);
+            return SimOriginInitialPosition +
+                   _shipForwardBasis * (Quaternion.Inverse(shipRot) * (virtualPos - shipPos));
+        }
+
+        /// <summary>
+        /// How far the exterior content that started at worldPoint has moved under the
+        /// current inverse transform (mapped - original). Zero while the ship is at rest.
+        /// </summary>
+        public Vector3 ComputeWorldShiftAt(Vector3 worldPoint)
+        {
+            ResolveShipPose(out var shipPos, out var shipRot);
+            var mapped = SimOriginInitialPosition +
+                         _shipForwardBasis * (Quaternion.Inverse(shipRot) * (worldPoint - shipPos));
+            return mapped - worldPoint;
         }
 
 #if UNITY_EDITOR
@@ -225,7 +279,9 @@ namespace ShipBridgePrototype
 
             Gizmos.color = Color.yellow;
             Gizmos.DrawWireSphere(_initialPivotPosition, 1.5f);
-            Gizmos.DrawLine(_initialPivotPosition, _initialPivotPosition + _shipForwardBasis * Vector3.forward * 8f);
+            Gizmos.DrawLine(_initialPivotPosition, SimOriginInitialPosition);
+            Gizmos.color = Color.red;
+            Gizmos.DrawWireSphere(SimOriginInitialPosition, 1.5f);
         }
 #endif
     }

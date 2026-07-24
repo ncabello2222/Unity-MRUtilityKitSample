@@ -12,7 +12,8 @@ namespace NavigationSim.UnityLayer
     /// <summary>
     /// Bridge to the North Star / Meta Utilities iFFT ocean.
     /// Keeps the ocean mesh centered on the bridge, drives wind/spectrum from
-    /// <see cref="EnvironmentState"/>, scrolls the FFT with virtual East/North,
+    /// <see cref="EnvironmentState"/>, translates the wave field rigidly with the
+    /// same inverse-exterior transform the terrain uses (spectral phase shift),
     /// and feeds <see cref="WaveResponseModel"/> height samples for seakeeping.
     /// </summary>
     [DefaultExecutionOrder(-50)]
@@ -38,7 +39,7 @@ namespace NavigationSim.UnityLayer
         [SerializeField] private float freeboardBelowDeckM = 2.5f;
         [SerializeField] private int simulationResolution = 128;
         [SerializeField] private float oceanSize = 1024f;
-        [Tooltip("When true, advances FFT time from East/North projected on wave direction so crests scroll under the fixed bridge.")]
+        [Tooltip("When true, translates the FFT field with the exterior-world transform so crests stay glued to the terrain while the bridge stays fixed.")]
         [SerializeField] private bool scrollWavesWithVirtualPosition = true;
         [Tooltip("Drive WaveResponseModel from iFFT height samples (Phase 3).")]
         [SerializeField] private bool bindSeakeepingToSurface = true;
@@ -46,6 +47,7 @@ namespace NavigationSim.UnityLayer
         private Transform _oceanRoot;
         private OceanSimulation _oceanSimulation;
         private QuadtreeRenderer _quadtreeRenderer;
+        private ExteriorWorldMotion _motion;
         private EnvironmentProfile _profile;
         private MaterialPropertyBlock _propertyBlock;
         private Vector3 _pivotPosition;
@@ -191,18 +193,24 @@ namespace NavigationSim.UnityLayer
                 return;
             }
 
-            // Taylor hypothesis: travel along the dominant wave direction ≈ FFT time shift.
-            // Visual mesh stays at the bridge; the FFT clock carries geographic progress.
-            double goingToRad = (_driveFromDeg + 180.0) * Math.PI / 180.0;
-            double dirE = Math.Sin(goingToRad);
-            double dirN = Math.Cos(goingToRad);
-            double projected = _east * dirE + _north * dirN;
-            _oceanSimulation.AdditionalSimulationTime =
-                (float)(projected / Math.Max(2.0, _driveWindSpeed * 0.85));
+            // Exact rigid translation: shift the FFT field by the same world-space
+            // offset the terrain received at the bridge (spectral phase e^(iK·D)).
+            // Heading is carried by BuildWindVector, whose deterministic per-cell
+            // phases morph the spectrum smoothly instead of re-randomizing it.
+            Vector3 shift;
+            if (_motion != null && _motion.HasInitialPose)
+            {
+                shift = _motion.ComputeWorldShiftAt(_pivotPosition);
+            }
+            else
+            {
+                var yaw = Quaternion.AngleAxis(-(float)headingDeg, Vector3.up);
+                shift = -(_shipForwardBasis * (yaw * new Vector3((float)east, 0f, (float)north)));
+            }
 
-            // Geographic East/North → Unity world axes via the bridge forward basis.
-            var worldOffset = _shipForwardBasis * new Vector3((float)_east, 0f, (float)_north);
-            Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(worldOffset.x, 0f, worldOffset.z, 0f));
+            // T(u) = f(u + D): features move by -D, so D = -shift tracks the terrain.
+            _oceanSimulation.FieldOffset = new Vector2(-shift.x, -shift.z);
+            Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(shift.x, 0f, shift.z, 0f));
         }
 
         public double SampleHeight(double east, double north, double timeS)
@@ -214,11 +222,22 @@ namespace NavigationSim.UnityLayer
 
             EnsureDisplacementReady();
 
-            // With Taylor time-scroll the displacement field is already shifted for
-            // the ship origin — sample local offsets so bow/stern match the visual.
-            float localE = (float)(east - _east);
-            float localN = (float)(north - _north);
-            return SampleHeightIterative(new Vector3(localE, 0f, localN), 4);
+            // Sample in the frame the mesh is drawn: geo → current Unity world via
+            // the inverse-exterior transform, then world XZ / patch as UV, exactly
+            // like the shader. The field translation is baked into the texture.
+            Vector3 world;
+            if (_motion != null && _motion.HasInitialPose)
+            {
+                world = _motion.GeoToWorld(east, north);
+            }
+            else
+            {
+                float localE = (float)(east - _east);
+                float localN = (float)(north - _north);
+                world = _pivotPosition + _shipForwardBasis * new Vector3(localE, 0f, localN);
+            }
+
+            return SampleHeightIterative(new Vector3(world.x, 0f, world.z), 4);
         }
 
         public Vector3 SampleNormal(double east, double north, double eps = 1.0)
@@ -511,6 +530,7 @@ namespace NavigationSim.UnityLayer
         private void BindPivotFromExterior()
         {
             var motion = FindAnyObjectByType<ExteriorWorldMotion>();
+            _motion = motion;
             if (motion != null && motion.HasInitialPose)
             {
                 _pivotPosition = motion.InitialPivotPosition;

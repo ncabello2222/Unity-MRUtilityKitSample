@@ -16,6 +16,7 @@ namespace Meta.Utilities.Environment
     {
         private int m_log2Resolution, m_resolutionMask;
         private float m_time, m_halfResolutionF;
+        private float2 m_phasePerCell;
 
         [ReadOnly]
         private NativeArray<float> m_dispersionTable;
@@ -29,7 +30,7 @@ namespace Meta.Utilities.Environment
         [WriteOnly]
         private NativeArray<float4> m_displacementBuffer;
 
-        public OceanDispersionJob(NativeArray<float> dispersionTable, NativeArray<float4> spectrum, NativeArray<float2> heightBuffer, NativeArray<float4> displacementBuffer, int resolution, float time)
+        public OceanDispersionJob(NativeArray<float> dispersionTable, NativeArray<float4> spectrum, NativeArray<float2> heightBuffer, NativeArray<float4> displacementBuffer, int resolution, float time, float2 phasePerCell)
         {
             m_dispersionTable = dispersionTable;
             m_spectrum = spectrum;
@@ -39,6 +40,7 @@ namespace Meta.Utilities.Environment
             m_log2Resolution = floorlog2(resolution);
             m_halfResolutionF = resolution >> 1;
             m_resolutionMask = (1 << m_log2Resolution) - 1;
+            m_phasePerCell = phasePerCell;
         }
 
         void IJobParallelFor.Execute(int index)
@@ -52,10 +54,18 @@ namespace Meta.Utilities.Environment
             var h0 = m_spectrum[index];
             float2 direction; sincos(wkt, out direction.y, out direction.x);
             var h = h0.xy * direction.x + h0.zw * direction.y;
+
+            var k = float2(index & m_resolutionMask, index >> m_log2Resolution) - m_halfResolutionF;
+
+            // Rigid field translation by offset D: h(k) *= e^(i K·D). phasePerCell is
+            // 2π/patchSize · D, so phi stays exact for any distance because e^(i K·D)
+            // is periodic in D with the patch size (integer wave numbers).
+            var phi = dot(k, m_phasePerCell);
+            float2 shift; sincos(phi, out shift.y, out shift.x);
+            h = float2(h.x * shift.x - h.y * shift.y, h.x * shift.y + h.y * shift.x);
             m_heightBuffer[index] = h;
 
             // Eq 44
-            var k = float2(index & m_resolutionMask, index >> m_log2Resolution) - m_halfResolutionF;
             k *= rsqrt(max(1f, dot(k, k)));
             var d = conj(h.yx).xyxy * k.xxyy;
             m_displacementBuffer[index] = d;
