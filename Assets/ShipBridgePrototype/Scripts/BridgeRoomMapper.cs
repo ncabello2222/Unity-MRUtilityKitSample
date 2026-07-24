@@ -28,7 +28,7 @@ namespace ShipBridgePrototype
 
         [Header("Wall / Window")]
         [Tooltip("If disabled, every mapped wall is generated as a solid wall without synthetic windows.")]
-        [SerializeField] private bool generateBridgeWindows;
+        [SerializeField] private bool generateBridgeWindows = true;
         [SerializeField] private float wallThickness = 0.06f;
         [SerializeField] private float windowWaistHeight = 0.9f;
         [SerializeField] private float windowTopClearance = 0.12f;
@@ -254,7 +254,14 @@ namespace ShipBridgePrototype
         /// <summary>
         /// Cycle to the next MRUK wall face as Front (any wall), then regenerate.
         /// </summary>
-        public void SelectNextFrontWall()
+        public void SelectNextFrontWall() => CycleFrontWall(+1);
+
+        /// <summary>
+        /// Cycle to the previous MRUK wall face as Front (any wall), then regenerate.
+        /// </summary>
+        public void SelectPreviousFrontWall() => CycleFrontWall(-1);
+
+        private void CycleFrontWall(int direction)
         {
             if (_activeRoom == null)
             {
@@ -269,6 +276,7 @@ namespace ShipBridgePrototype
                 return;
             }
 
+            var step = direction >= 0 ? 1 : -1;
             var currentIndex = 0;
             if (_classifiedWalls.TryGetValue(WallRole.Front, out var current) && current != null)
             {
@@ -279,7 +287,13 @@ namespace ShipBridgePrototype
                 }
             }
 
-            var next = walls[(currentIndex + 1) % walls.Count];
+            var nextIndex = (currentIndex + step) % walls.Count;
+            if (nextIndex < 0)
+            {
+                nextIndex += walls.Count;
+            }
+
+            var next = walls[nextIndex];
             if (_referenceFrame != null)
             {
                 _referenceFrame.SetCalibrated(false);
@@ -287,7 +301,7 @@ namespace ShipBridgePrototype
 
             GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: false, forcedFront: next);
             Debug.Log(
-                $"[BridgeRoomMapper] Selected wall {(currentIndex + 1) % walls.Count + 1}/{walls.Count} " +
+                $"[BridgeRoomMapper] Selected wall {nextIndex + 1}/{walls.Count} " +
                 $"as Front: {next.name} ({GetWallWidth(next):F2}m).");
         }
 

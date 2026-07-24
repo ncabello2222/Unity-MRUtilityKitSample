@@ -47,6 +47,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private NavigationSimRunner _runner;
         private GameObject _canvasRoot;
+        private OpenBridgeConningBinder _openBridgeBinder;
         private float _refreshTimer;
 
         private TMP_Text _hdgValue;
@@ -99,6 +100,14 @@ namespace NavigationSim.UnityLayer.UI
         private void Awake()
         {
             _runner = GetComponent<NavigationSimRunner>();
+
+            // The FCU scene object is an import workspace, not the runtime panel.
+            // Keep it hidden until Open() clones only the conning case.
+            GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
+            if (importedRoot != null)
+            {
+                importedRoot.SetActive(false);
+            }
         }
 
         private void Update()
@@ -151,8 +160,11 @@ namespace NavigationSim.UnityLayer.UI
         {
             if (_canvasRoot == null)
             {
-                EnsureSprites();
-                BuildCanvas();
+                if (!BuildImportedOpenBridgeCanvas())
+                {
+                    EnsureSprites();
+                    BuildCanvas();
+                }
             }
 
             PlaceInFrontOfCamera();
@@ -186,13 +198,83 @@ namespace NavigationSim.UnityLayer.UI
             // Slightly to the left of the config panel placement so both can coexist.
             var right = Vector3.Cross(Vector3.up, forward).normalized;
             _canvasRoot.transform.position =
-                cam.transform.position + forward * 1.25f - right * 0.15f + Vector3.up * 0.05f;
+                cam.transform.position + forward * 1.65f - right * 0.15f + Vector3.up * 0.05f;
             _canvasRoot.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
         // ─────────────────────────────────────────────────────────────────────
         //  Build
         // ─────────────────────────────────────────────────────────────────────
+
+        private bool BuildImportedOpenBridgeCanvas()
+        {
+            GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
+            if (importedRoot == null)
+            {
+                return false;
+            }
+
+            Transform importedCase = null;
+            foreach (Transform child in importedRoot.GetComponentsInChildren<Transform>(true))
+            {
+                if (child.name == "cases_conning_5.0")
+                {
+                    importedCase = child;
+                    break;
+                }
+            }
+
+            if (importedCase == null)
+            {
+                Debug.LogWarning("[BridgeConningDisplay] OpenBridge_FCU exists, but cases_conning_5.0 was not found. Using fallback UI.");
+                return false;
+            }
+
+            _canvasRoot = new GameObject("BridgeConningCanvas_OpenBridge");
+            _canvasRoot.transform.SetParent(transform, false);
+
+            var canvas = _canvasRoot.AddComponent<Canvas>();
+            canvas.renderMode = RenderMode.WorldSpace;
+            _canvasRoot.AddComponent<GraphicRaycaster>();
+
+            var canvasRect = _canvasRoot.GetComponent<RectTransform>();
+            canvasRect.sizeDelta = new Vector2(1920f, 1080f);
+            _canvasRoot.transform.localScale = Vector3.one * 0.001f;
+
+            GameObject runtimeCase = Instantiate(importedCase.gameObject, _canvasRoot.transform, false);
+            runtimeCase.name = "cases_conning_5.0_Runtime";
+            runtimeCase.SetActive(true);
+
+            if (runtimeCase.transform is RectTransform caseRect)
+            {
+                caseRect.anchorMin = new Vector2(0.5f, 0.5f);
+                caseRect.anchorMax = new Vector2(0.5f, 0.5f);
+                caseRect.pivot = new Vector2(0.5f, 0.5f);
+                caseRect.anchoredPosition = Vector2.zero;
+                caseRect.sizeDelta = new Vector2(1920f, 1080f);
+                caseRect.localScale = Vector3.one;
+                caseRect.localRotation = Quaternion.identity;
+            }
+
+            _openBridgeBinder = runtimeCase.AddComponent<OpenBridgeConningBinder>();
+            _openBridgeBinder.Initialize(_runner);
+            importedRoot.SetActive(false);
+
+            Debug.Log("[BridgeConningDisplay] Using FCU-imported OpenBridge conning case with live simulation bindings.");
+            return true;
+        }
+
+        private static GameObject FindSceneObject(string objectName)
+        {
+            foreach (GameObject candidate in Resources.FindObjectsOfTypeAll<GameObject>())
+            {
+                if (candidate.name == objectName && candidate.scene.IsValid())
+                {
+                    return candidate;
+                }
+            }
+            return null;
+        }
 
         private void BuildCanvas()
         {
@@ -452,6 +534,12 @@ namespace NavigationSim.UnityLayer.UI
 
         private void RefreshInstruments()
         {
+            if (_openBridgeBinder != null)
+            {
+                _openBridgeBinder.Refresh();
+                return;
+            }
+
             var s = _runner.Sim.State;
             var env = _runner.Env;
             var bridge = ShipControlState.Instance;

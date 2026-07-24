@@ -1,0 +1,28 @@
+Key;en-US
+title;Conning main page
+02_colors;Main page
+_app_name;Conning
+_section;Transit
+label;Below Transducer
+unit;m
+n;N
+value_actual;0.0
+degree;°
+value_zeros;000
+text_source;GPS1
+s;S
+e;E
+w;W
+ne;NE
+sw;SW
+se;SE
+nw;NW
+kn;KN
+stw;STW
+current_leg;Current leg
+steering_mode;Steering mode
+next_leg;Next Leg
+value_digits;000
+text_label;Angle
+description;"The purpose of this sketch is to show how OpenBridge components can be used in interface design. The design example is not a finished or approved product and should not be used as such. In order to design your product, we recommend applying standard user centered design processes. We plan to release verified references designs at a later stage. We welcome critique and suggestions that may improve the examples.
+"

@@ -1,7 +1,11 @@
 {
     "name": "NavigationSim.EditorBootstrap",
     "rootNamespace": "NavigationSim.EditorBootstrap",
-    "references": [],
+    "references": [
+        "DA_Assets.FCU",
+        "DA_Assets.UCC",
+        "DA_Assets.Shared"
+    ],
     "includePlatforms": [
         "Editor"
     ],

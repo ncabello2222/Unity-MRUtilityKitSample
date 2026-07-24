@@ -63,13 +63,14 @@ namespace ShipBridgePrototype
         [SerializeField] private Vector2 positionEastNorthM;
 
         private ShipControlState _state;
-        private bool _syncedTimeScaleFromRunner;
 
         // Last values this component applied. Writes happen only on slider change so
-        // the physical wheel / panel levers are not stomped every frame.
+        // the physical wheel / panel levers (and the B-panel canvas) are not stomped
+        // every frame.
         private float _appliedRudder = float.NaN;
         private float _appliedBowThruster = float.NaN;
         private float _appliedThrottle = float.NaN;
+        private float _appliedTimeScale = float.NaN;
         private bool _appliedEmergencyStop;
         private bool _hasAppliedEmergencyStop;
 
@@ -224,13 +225,24 @@ namespace ShipBridgePrototype
             var runner = NavigationSim.UnityLayer.NavigationSimRunner.Instance;
             if (runner != null)
             {
-                if (!_syncedTimeScaleFromRunner)
+                // Same ownership rule as rudder: only push when this slider moved;
+                // otherwise mirror the live runner (B-panel / SimulationConfigInspector).
+                if (float.IsNaN(_appliedTimeScale))
                 {
                     tiempoAcelerado = runner.TimeScale;
-                    _syncedTimeScaleFromRunner = true;
+                    _appliedTimeScale = tiempoAcelerado;
+                }
+                else if (!Mathf.Approximately(tiempoAcelerado, _appliedTimeScale))
+                {
+                    runner.TimeScale = tiempoAcelerado;
+                    _appliedTimeScale = tiempoAcelerado;
+                }
+                else if (!Mathf.Approximately(runner.TimeScale, tiempoAcelerado))
+                {
+                    tiempoAcelerado = runner.TimeScale;
+                    _appliedTimeScale = tiempoAcelerado;
                 }
 
-                runner.TimeScale = tiempoAcelerado;
                 runner.Sim.Command.EngineReady = engineReady && !emergencyStop;
                 runner.Sim.Command.SteeringMode = NavigationSim.Core.SteeringMode.Hand;
                 runner.PanelEmergencyStop = emergencyStop;
@@ -306,6 +318,8 @@ namespace ShipBridgePrototype
             _appliedRudder = float.NaN;
             _appliedBowThruster = float.NaN;
             _appliedThrottle = float.NaN;
+            // Differ from 1 so ApplyToState pushes tiempoAcelerado instead of pulling.
+            _appliedTimeScale = 0f;
             _hasAppliedEmergencyStop = false;
             ApplyToState();
         }

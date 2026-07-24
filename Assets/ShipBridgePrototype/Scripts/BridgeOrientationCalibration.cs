@@ -82,18 +82,10 @@ namespace ShipBridgePrototype
         }
 
         [ContextMenu("Select Next Wall As Front")]
-        public void SelectNextWall()
-        {
-            // Defer so we do not destroy the PointableCanvas mid-ray click.
-            if (isActiveAndEnabled)
-            {
-                StartCoroutine(SelectNextWallRoutine());
-            }
-            else
-            {
-                ApplySelectNextWall();
-            }
-        }
+        public void SelectNextWall() => CycleWall(+1);
+
+        [ContextMenu("Select Previous Wall As Front")]
+        public void SelectPreviousWall() => CycleWall(-1);
 
         /// <summary>Kept for inspector/context-menu compatibility; cycles any wall.</summary>
         [ContextMenu("Flip Front And Aft")]
@@ -102,15 +94,36 @@ namespace ShipBridgePrototype
             SelectNextWall();
         }
 
-        private IEnumerator SelectNextWallRoutine()
+        private void CycleWall(int direction)
         {
-            yield return null;
-            ApplySelectNextWall();
+            // Defer so we do not destroy the PointableCanvas mid-ray click.
+            if (isActiveAndEnabled)
+            {
+                StartCoroutine(CycleWallRoutine(direction));
+            }
+            else
+            {
+                ApplyCycleWall(direction);
+            }
         }
 
-        private void ApplySelectNextWall()
+        private IEnumerator CycleWallRoutine(int direction)
         {
-            mapper?.SelectNextFrontWall();
+            yield return null;
+            ApplyCycleWall(direction);
+        }
+
+        private void ApplyCycleWall(int direction)
+        {
+            if (direction < 0)
+            {
+                mapper?.SelectPreviousFrontWall();
+            }
+            else
+            {
+                mapper?.SelectNextFrontWall();
+            }
+
             _needsUserConfirm = true;
             EnsureWorldPanel();
             RefreshStatusLabel();
@@ -149,26 +162,27 @@ namespace ShipBridgePrototype
                 return;
             }
 
-            const float w = 440f;
-            const float h = 190f;
+            const float w = 360f;
+            const float h = 170f;
             var rect = new Rect(16f, 16f, w, h);
-            GUI.Box(rect, "Calibración de proa");
+            GUI.Box(rect, "Select forward");
             GUILayout.BeginArea(new Rect(rect.x + 12f, rect.y + 28f, w - 24f, h - 36f));
-            GUILayout.Label("Elige cualquier pared como adelante (proa) y confirma.");
-            GUILayout.Label($"Pared actual: {GetStatusText()}");
-            if (GUILayout.Button("Seleccionar siguiente pared", GUILayout.Height(32f)))
+            GUILayout.Label(GetStatusText());
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("◀", GUILayout.Height(36f), GUILayout.Width(70f)))
+            {
+                SelectPreviousWall();
+            }
+
+            if (GUILayout.Button("▶", GUILayout.Height(36f), GUILayout.Width(70f)))
             {
                 SelectNextWall();
             }
 
-            if (GUILayout.Button("Confirmar esta pared como adelante", GUILayout.Height(32f)))
+            GUILayout.EndHorizontal();
+            if (GUILayout.Button("Confirm", GUILayout.Height(36f)))
             {
                 ConfirmCurrentFront();
-            }
-
-            if (GUILayout.Button("Borrar calibración guardada", GUILayout.Height(24f)))
-            {
-                ResetCalibration();
             }
 
             GUILayout.EndArea();
@@ -203,21 +217,40 @@ namespace ShipBridgePrototype
             canvas.renderMode = RenderMode.WorldSpace;
             canvasGo.AddComponent<GraphicRaycaster>();
             var rt = canvasGo.GetComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(800f, 420f);
+            rt.sizeDelta = new Vector2(720f, 400f);
             // Match NavigationPanel scale order of magnitude so ray distance feels the same.
             canvasGo.transform.localScale = Vector3.one * 0.0012f;
             canvasGo.transform.localPosition = Vector3.zero;
             canvasGo.transform.localRotation = Quaternion.identity;
 
             // Background so the panel reads as a solid UI surface.
-            CreateWorldImage(canvasGo.transform, Vector2.zero, new Vector2(800f, 420f),
+            CreateWorldImage(canvasGo.transform, Vector2.zero, new Vector2(720f, 400f),
                 new Color(0.05f, 0.08f, 0.12f, 0.92f));
 
-            CreateWorldLabel(canvasGo.transform, new Vector2(0f, 150f), "Calibración de proa", 34, out _);
-            CreateWorldLabel(canvasGo.transform, new Vector2(0f, 90f), GetStatusText(), 28, out _statusLabel);
-            CreateWorldButton(canvasGo.transform, new Vector2(0f, 10f), "Seleccionar pared", SelectNextWall);
-            CreateWorldButton(canvasGo.transform, new Vector2(0f, -80f), "Confirmar adelante", ConfirmCurrentFront);
-            CreateWorldButton(canvasGo.transform, new Vector2(0f, -170f), "Borrar calibración", ResetCalibration);
+            CreateWorldLabel(canvasGo.transform, new Vector2(0f, 140f), "Select forward", 40, out _);
+            CreateWorldLabel(canvasGo.transform, new Vector2(0f, 70f), GetCompactStatusText(), 26, out _statusLabel);
+
+            CreateWorldButton(
+                canvasGo.transform,
+                new Vector2(-160f, -10f),
+                "◀",
+                SelectPreviousWall,
+                new Vector2(140f, 110f),
+                64);
+            CreateWorldButton(
+                canvasGo.transform,
+                new Vector2(160f, -10f),
+                "▶",
+                SelectNextWall,
+                new Vector2(140f, 110f),
+                64);
+            CreateWorldButton(
+                canvasGo.transform,
+                new Vector2(0f, -140f),
+                "Confirm",
+                ConfirmCurrentFront,
+                new Vector2(420f, 80f),
+                40);
 
             AttachRayCanvasInteraction(canvas, rt);
         }
@@ -361,24 +394,40 @@ namespace ShipBridgePrototype
         {
             if (mapper == null)
             {
-                return "Pared: (sin mapper)";
+                return "Wall: (none)";
             }
 
             var index = mapper.GetFrontWallSelectionIndex(out var count);
             var name = mapper.GetFrontWallDisplayName();
             if (index < 0 || count <= 0)
             {
-                return $"Pared: {name}";
+                return $"Wall: {name}";
             }
 
-            return $"Pared {index + 1}/{count}: {name}";
+            return $"Wall {index + 1}/{count}: {name}";
+        }
+
+        private string GetCompactStatusText()
+        {
+            if (mapper == null)
+            {
+                return "—";
+            }
+
+            var index = mapper.GetFrontWallSelectionIndex(out var count);
+            if (index < 0 || count <= 0)
+            {
+                return "—";
+            }
+
+            return $"{index + 1} / {count}";
         }
 
         private void RefreshStatusLabel()
         {
             if (_statusLabel != null)
             {
-                _statusLabel.text = GetStatusText();
+                _statusLabel.text = GetCompactStatusText();
             }
         }
 
@@ -428,12 +477,14 @@ namespace ShipBridgePrototype
             Transform parent,
             Vector2 anchoredPos,
             string label,
-            UnityEngine.Events.UnityAction action)
+            UnityEngine.Events.UnityAction action,
+            Vector2 size,
+            int fontSize)
         {
             var go = new GameObject(label);
             go.transform.SetParent(parent, false);
             var rt = go.AddComponent<RectTransform>();
-            rt.sizeDelta = new Vector2(700f, 70f);
+            rt.sizeDelta = size;
             rt.anchoredPosition = anchoredPos;
 
             var image = go.AddComponent<Image>();
@@ -455,7 +506,7 @@ namespace ShipBridgePrototype
             text.text = label;
             text.alignment = TextAnchor.MiddleCenter;
             text.color = Color.white;
-            text.fontSize = 36;
+            text.fontSize = fontSize;
             text.raycastTarget = false;
             text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             if (text.font == null)

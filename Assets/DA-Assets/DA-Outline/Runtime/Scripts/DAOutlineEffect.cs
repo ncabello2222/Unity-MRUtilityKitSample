@@ -165,8 +165,16 @@ namespace DA_Assets.DAO
             if (!IsActive() || graphic == null)
                 return;
 
-            DAOutlineData data = GetData();
-            DAOutlineMeshBuilder.Populate(vh, graphic.rectTransform.rect, data, outlineColor);
+            try
+            {
+                DAOutlineData data = GetData();
+                DAOutlineMeshBuilder.Populate(vh, graphic.rectTransform.rect, data, outlineColor);
+            }
+            catch (System.Exception)
+            {
+                // Bad/imported SVG path data must not fail canvas rebuild or player builds.
+                vh.Clear();
+            }
         }
 
         private void SetGraphicDirty()

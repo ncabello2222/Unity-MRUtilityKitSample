@@ -62,9 +62,21 @@ namespace DA_Assets.DAO.Internal
                 }
 
                 float[] values = new float[arity];
+                bool parsed = true;
                 for (int i = 0; i < arity; i++)
                 {
-                    values[i] = float.Parse(tokens[index + i], CultureInfo.InvariantCulture);
+                    if (!float.TryParse(tokens[index + i], NumberStyles.Float, CultureInfo.InvariantCulture, out values[i]))
+                    {
+                        parsed = false;
+                        break;
+                    }
+                }
+
+                if (!parsed)
+                {
+                    // Skip a single bad token instead of aborting canvas rebuild / player builds.
+                    index++;
+                    continue;
                 }
 
                 index += arity;
@@ -226,6 +238,12 @@ namespace DA_Assets.DAO.Internal
                     FlushToken(builder, tokens);
                 }
 
+                // SVG allows omitted separators between decimals: "1.2.3" => "1.2" ".3"
+                if (ch == '.' && builder.Length > 0 && HasDecimalPoint(builder))
+                {
+                    FlushToken(builder, tokens);
+                }
+
                 builder.Append(ch);
             }
 
@@ -240,6 +258,20 @@ namespace DA_Assets.DAO.Internal
 
             tokens.Add(builder.ToString());
             builder.Clear();
+        }
+
+        private static bool HasDecimalPoint(StringBuilder builder)
+        {
+            for (int i = 0; i < builder.Length; i++)
+            {
+                char ch = builder[i];
+                if (ch == 'e' || ch == 'E')
+                    return false;
+                if (ch == '.')
+                    return true;
+            }
+
+            return false;
         }
 
         private static Vector2 ToAbsolute(char command, Vector2 current, float x, float y)

@@ -25,7 +25,16 @@ namespace DA_Assets.DAO.Internal
                 if (string.IsNullOrWhiteSpace(path))
                     continue;
 
-                List<DAPathSubpath> subpaths = DASvgPathParser.Parse(path, data.CurveSegments);
+                List<DAPathSubpath> subpaths;
+                try
+                {
+                    subpaths = DASvgPathParser.Parse(path, data.CurveSegments);
+                }
+                catch (System.Exception)
+                {
+                    continue;
+                }
+
                 for (int j = 0; j < subpaths.Count; j++)
                 {
                     if (HasDashes(data.Dashes))
