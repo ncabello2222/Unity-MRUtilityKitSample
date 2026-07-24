@@ -17,8 +17,8 @@ namespace ShipBridgePrototype
         [SerializeField] private Transform hullParent;
         [Tooltip("Extra lateral/vertical nudge after catalog offsets [m].")]
         [SerializeField] private Vector3 fineTuneOffset;
-        [Tooltip("Yaw applied to Blender hulls so bow points with the bridge windows (+Z). FBX often arrives rotated.")]
-        [SerializeField] private float hullYawOffsetDeg = -90f;
+        [Tooltip("Yaw applied to Blender hulls so bow points with the bridge windows (+Z). Catalog FBX hulls have the bow along model -Z (origin at stern), so 180 aligns bow with the pivot forward.")]
+        [SerializeField] private float hullYawOffsetDeg = 180f;
 
         private GameObject _activeHull;
         private string _activeId;
@@ -62,6 +62,16 @@ namespace ShipBridgePrototype
             if (hullParent == null && pivot != null)
             {
                 EnsureHullParent();
+            }
+            else if (hullParent != null && pivot != null && hullParent.parent != pivot)
+            {
+                // The hull parent may have been created before the bridge pivot existed
+                // (fallback under this component). Rebind so the hull follows the
+                // bridge reference frame (bow = pivot +Z).
+                hullParent.SetParent(pivot, false);
+                hullParent.localPosition = Vector3.zero;
+                hullParent.localRotation = Quaternion.identity;
+                hullParent.localScale = Vector3.one;
             }
 
             if (!string.IsNullOrEmpty(_activeId))

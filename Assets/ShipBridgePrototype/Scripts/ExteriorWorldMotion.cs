@@ -28,8 +28,8 @@ namespace ShipBridgePrototype
             "should physically tilt.")]
         [SerializeField] private bool applySeakeepingAttitudeToExterior = false;
 
-        private Matrix4x4 _initialExteriorWorld;
-        private Matrix4x4 _initialShipWorld;
+        private Vector3 _initialExteriorPosition;
+        private Quaternion _initialExteriorRotation = Quaternion.identity;
         private bool _hasInitialPose;
         private Vector3 _initialPivotPosition;
         private Quaternion _shipForwardBasis = Quaternion.identity;
@@ -124,10 +124,14 @@ namespace ShipBridgePrototype
                 return;
             }
 
-            // Keep virtual ship progress; only refresh the exterior baseline so the new
-            // scenario appears at the current relative ship pose.
-            var shipDelta = CurrentShipWorld() * _initialShipWorld.inverse;
-            _initialExteriorWorld = shipDelta * exteriorWorld.Root.localToWorldMatrix;
+            // Keep virtual ship progress; bake E0 so S0*S^-1*E0 == current exterior.
+            // E0 = S * S0^-1 * E_current.
+            ResolveShipPose(out var shipPos, out var shipRot);
+            var root = exteriorWorld.Root;
+            var invShip0 = Quaternion.Inverse(_shipForwardBasis);
+            _initialExteriorPosition =
+                shipPos + shipRot * (invShip0 * (root.position - _initialPivotPosition));
+            _initialExteriorRotation = shipRot * invShip0 * root.rotation;
         }
 
         private void ResolveReferences()
@@ -155,8 +159,8 @@ namespace ShipBridgePrototype
         {
             var pivotPos = shipPivot != null ? shipPivot.position : exteriorWorld.MotionPivot.position;
             _initialPivotPosition = pivotPos;
-            _initialShipWorld = Matrix4x4.TRS(pivotPos, _shipForwardBasis, Vector3.one);
-            _initialExteriorWorld = exteriorWorld.Root.localToWorldMatrix;
+            _initialExteriorPosition = exteriorWorld.Root.position;
+            _initialExteriorRotation = exteriorWorld.Root.rotation;
             _hasInitialPose = true;
 
             var runner = NavigationSimRunner.EnsureInstance();
@@ -164,16 +168,17 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
-        /// Ship pose in Unity world space built from the core state. The sim uses
-        /// North/East/psi with psi = 0 along the initial forward basis:
-        /// sim North → basis forward (+Z), sim East → basis right (+X).
+        /// Virtual ship pose in Unity world space. Sim North/East/psi with psi = 0
+        /// along the initial forward basis: North → basis +Z, East → basis +X.
         /// </summary>
-        private Matrix4x4 CurrentShipWorld()
+        private void ResolveShipPose(out Vector3 shipPos, out Quaternion shipRot)
         {
             var runner = NavigationSimRunner.Instance;
             if (runner == null)
             {
-                return _initialShipWorld;
+                shipPos = _initialPivotPosition;
+                shipRot = _shipForwardBasis;
+                return;
             }
 
             float gain = seakeepingVisualGain;
@@ -188,17 +193,40 @@ namespace ShipBridgePrototype
             float roll = applySeakeepingAttitudeToExterior ? -(float)runner.InterpRollDeg * gain : 0f;
             var attitude = Quaternion.Euler(pitch, (float)runner.InterpPsiDeg, roll);
 
-            var position = _initialPivotPosition + _shipForwardBasis * localOffset;
-            return Matrix4x4.TRS(position, _shipForwardBasis * attitude, Vector3.one);
+            shipPos = _initialPivotPosition + _shipForwardBasis * localOffset;
+            shipRot = _shipForwardBasis * attitude;
         }
 
         private void ApplyInverseExteriorPose()
         {
-            // Room stays fixed. Exterior receives Inverse(shipDelta) so the view matches a moving ship.
-            var shipDelta = CurrentShipWorld() * _initialShipWorld.inverse;
-            var exteriorMatrix = shipDelta.inverse * _initialExteriorWorld;
+            // Room stays fixed. A geographic point G maps to Unity as:
+            //   X' = ship0 * ship^-1 * G
+            // so the whole exterior rigidly orbits the ship pivot (not ExteriorWorld's
+            // own origin). Using quaternions avoids Matrix4x4.rotation extraction drift.
+            ResolveShipPose(out var shipPos, out var shipRot);
 
-            exteriorWorld.Root.SetPositionAndRotation(exteriorMatrix.GetColumn(3), exteriorMatrix.rotation);
+            var shipPos0 = _initialPivotPosition;
+            var shipRot0 = _shipForwardBasis;
+            var invShip = Quaternion.Inverse(shipRot);
+
+            var newPos = shipPos0 + shipRot0 * (invShip * (_initialExteriorPosition - shipPos));
+            var newRot = shipRot0 * invShip * _initialExteriorRotation;
+
+            exteriorWorld.Root.SetPositionAndRotation(newPos, newRot);
         }
+
+#if UNITY_EDITOR
+        private void OnDrawGizmosSelected()
+        {
+            if (!_hasInitialPose)
+            {
+                return;
+            }
+
+            Gizmos.color = Color.yellow;
+            Gizmos.DrawWireSphere(_initialPivotPosition, 1.5f);
+            Gizmos.DrawLine(_initialPivotPosition, _initialPivotPosition + _shipForwardBasis * Vector3.forward * 8f);
+        }
+#endif
     }
 }

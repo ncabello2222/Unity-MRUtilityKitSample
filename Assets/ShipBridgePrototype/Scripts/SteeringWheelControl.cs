@@ -25,6 +25,8 @@ namespace ShipBridgePrototype
         private float _accumulatedAngle;
         private float _prevRawAngle;
         private bool _hasPrevRaw;
+        private float _lastAccumulatedAngle;
+        private const float MoveEpsilonDeg = 0.05f;
 
         public Transform WheelTransform => wheelTransform;
         public float CurrentWheelAngleDeg => _accumulatedAngle;
@@ -52,13 +54,49 @@ namespace ShipBridgePrototype
             }
 
             var angle = ReadSignedWheelAngle();
-            var t = Mathf.Clamp(angle / maxWheelAngleDeg, -1f, 1f);
+            var moving = Mathf.Abs(angle - _lastAccumulatedAngle) > MoveEpsilonDeg;
+            _lastAccumulatedAngle = angle;
+
+            if (moving)
+            {
+                // Hand on the wheel: the wheel owns the command.
+                var t = Mathf.Clamp(angle / maxWheelAngleDeg, -1f, 1f);
+                if (invertRudder)
+                {
+                    t = -t;
+                }
+
+                controlState.CommandedRudderAngleDeg = t * maxRudderAngleDeg;
+                return;
+            }
+
+            // Wheel idle: follow external commands (inspector sliders, autopilot)
+            // so the cylinder visibly turns with the rudder order.
+            SyncWheelToCommand(angle);
+        }
+
+        private void SyncWheelToCommand(float currentAngle)
+        {
+            var commanded = controlState.CommandedRudderAngleDeg;
+            var t = maxRudderAngleDeg > 0.01f ? Mathf.Clamp(commanded / maxRudderAngleDeg, -1f, 1f) : 0f;
             if (invertRudder)
             {
                 t = -t;
             }
 
-            controlState.CommandedRudderAngleDeg = t * maxRudderAngleDeg;
+            var targetAngle = t * maxWheelAngleDeg;
+            if (Mathf.Abs(targetAngle - currentAngle) < 0.25f)
+            {
+                return;
+            }
+
+            wheelTransform.localRotation = _restLocalRotation *
+                Quaternion.AngleAxis(targetAngle, localRotationAxis);
+
+            // Keep the accumulator coherent so the next grab starts from here.
+            _accumulatedAngle = targetAngle;
+            _prevRawAngle = ReadRawSignedAngle();
+            _lastAccumulatedAngle = targetAngle;
         }
 
         private void ResolveControlState()

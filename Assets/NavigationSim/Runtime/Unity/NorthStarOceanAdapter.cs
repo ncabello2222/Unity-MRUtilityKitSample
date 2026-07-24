@@ -200,7 +200,9 @@ namespace NavigationSim.UnityLayer
             _oceanSimulation.AdditionalSimulationTime =
                 (float)(projected / Math.Max(2.0, _driveWindSpeed * 0.85));
 
-            Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4((float)_east, 0f, (float)_north, 0f));
+            // Geographic East/North → Unity world axes via the bridge forward basis.
+            var worldOffset = _shipForwardBasis * new Vector3((float)_east, 0f, (float)_north);
+            Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(worldOffset.x, 0f, worldOffset.z, 0f));
         }
 
         public double SampleHeight(double east, double north, double timeS)

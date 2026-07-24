@@ -229,6 +229,9 @@ MonoBehaviour:
   exteriorGroundMaterial: {fileID: 2100000, guid: 3e9528e42effb2b42aa8ec5212e80cec, type: 2}
   exteriorMountainMaterial: {fileID: 2100000, guid: 2dbd3e79615971241983801958dc91d9, type: 2}
   exteriorWaterMaterial: {fileID: 2100000, guid: 984d77fc4674e6b4b92d56ed62387f68, type: 2}
+  enableWallOcclusion: 1
+  wallOcclusionMaterial: {fileID: 0}
+  keepWallVisuals: 1
   generateExterior: 1
   disablePassthroughForExterior: 1
   exteriorTerrainSize: 220
@@ -236,6 +239,9 @@ MonoBehaviour:
   exteriorDistanceFromRoom: 18
   drawRoleGizmos: 1
   gizmoArrowLength: 0.6
+  gizmoForwardArrowLength: 1.4
+  restoreDotThreshold: 0.55
+  oppositeNormalMaxDot: -0.5
 --- !u!4 &107604875
 Transform:
   m_ObjectHideFlags: 0
@@ -1294,8 +1300,15 @@ MonoBehaviour:
   tiempoAcelerado: 1
   emergencyStop: 0
   engineReady: 1
+  confirmBow: 0
+  flipBow: 0
+  clearBowCalibration: 0
   telegraphOrder: 0
   actualRudderDeg: 0
+  headingDeg: 0
+  rateOfTurnDegMin: 0
+  speedKnots: 0
+  positionEastNorthM: {x: 0, y: 0}
 --- !u!1 &992179157
 GameObject:
   m_ObjectHideFlags: 0
@@ -1464,6 +1477,123 @@ Transform:
   m_Children: []
   m_Father: {fileID: 888561552}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1 &1112284705
+GameObject:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  serializedVersion: 6
+  m_Component:
+  - component: {fileID: 1112284706}
+  - component: {fileID: 1112284707}
+  m_Layer: 0
+  m_Name: SimulationConfigInspector
+  m_TagString: Untagged
+  m_Icon: {fileID: 0}
+  m_NavMeshLayer: 0
+  m_StaticEditorFlags: 0
+  m_IsActive: 1
+--- !u!4 &1112284706
+Transform:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1112284705}
+  serializedVersion: 2
+  m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
+  m_LocalPosition: {x: 0, y: 0, z: 0}
+  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_ConstrainProportionsScale: 0
+  m_Children: []
+  m_Father: {fileID: 2051625790}
+  m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &1112284707
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1112284705}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 020d5119bbd7d1b46bb2857d8ab7268d, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::NavigationSim.UnityLayer.UI.SimulationConfigInspector
+  driveFromInspector: 1
+  tiempoAcelerado: 1
+  tipoEmbarcacion: 0
+  modeloManiobra: 1
+  esloraLM: 90
+  mangaBM: 15
+  caladoTM: 5.5
+  coefBloqueCb: 0.72
+  cteSurgeXL: 1
+  buqueActivo: 
+  masaVelEquilibrio: 
+  reiniciarBuque: 0
+  rpmNominal: 156
+  mcrKw: 36000
+  cteTiempoMotorS: 18
+  rampaSubidaRpmS: 3.6
+  rampaBajadaRpmS: 7.2
+  retardoInversionS: 8
+  combustible: 0
+  sfocBaseC: 270
+  motorListo: 1
+  paradaEmergencia: 0
+  consumo: 
+  diametroHeliceM: 9.86
+  ktK0: 0.2931
+  ktK1: -0.2753
+  ktK2: -0.1385
+  kq0: 0.0454
+  kq1: -0.0408
+  estelaWP0: 0.4
+  deduccionEmpujeTP: 0.22
+  factorMarchaAtras: 0.75
+  thrusterProaKN: 250
+  posicionThrusterM: 140
+  modoGobierno: 0
+  nfuTimon: 0
+  rumboAutopilotoDeg: 0
+  timonMaximoDeg: 35
+  velocidadTimonDegS: 3
+  apKp: 3
+  apKi: 0.05
+  apKd: 120
+  apLimiteTimonDeg: 20
+  bombaGobierno1: 1
+  bombaGobierno2: 1
+  corrienteKn: 0
+  dirCorrienteHaciaDeg: 0
+  vientoMs: 0
+  dirVientoDesdeDeg: 0
+  alturaOlasHsM: 0.5
+  periodoPicoTpS: 8
+  dirOleajeDesdeDeg: 0
+  periodoBalanceS: 12
+  profundidadM: 60
+  densidadAgua: 1025
+  rumboDeg: 0
+  rotDegMin: 0
+  sogKn: 0
+  stwKn: 0
+  cogDeg: 0
+  timonActualDeg: 0
+  timonOrdenDeg: 0
+  telegrafo: 
+  rpmEje: 0
+  rpmOrden: 0
+  empujeKN: 0
+  parKNm: 0
+  potenciaEjeKW: 0
+  cargaMotor: 0
+  heaveM: 0
+  rollDeg: 0
+  pitchDeg: 0
+  posicionNE_M: {x: 0, y: 0}
 --- !u!1 &1159917462
 GameObject:
   m_ObjectHideFlags: 0
@@ -1901,6 +2031,7 @@ MonoBehaviour:
   exteriorWorld: {fileID: 0}
   shipPivot: {fileID: 0}
   seakeepingVisualGain: 1
+  applySeakeepingAttitudeToExterior: 0
 --- !u!114 &2051625789
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1960,6 +2091,7 @@ Transform:
   m_ConstrainProportionsScale: 0
   m_Children:
   - {fileID: 888797826}
+  - {fileID: 1112284706}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
 --- !u!114 &2051625791

@@ -67,6 +67,13 @@ namespace NavigationSim.UnityLayer
                 go.transform.SetParent(systems.transform, false);
                 go.AddComponent<ShipBridgePrototype.BridgeInspectorControls>();
             }
+
+            if (Object.FindAnyObjectByType<UI.SimulationConfigInspector>() == null)
+            {
+                var go = new GameObject("SimulationConfigInspector");
+                go.transform.SetParent(systems.transform, false);
+                go.AddComponent<UI.SimulationConfigInspector>();
+            }
         }
     }
 }

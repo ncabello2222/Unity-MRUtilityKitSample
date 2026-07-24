@@ -35,17 +35,42 @@ namespace ShipBridgePrototype
         [Range(1f, 60f)]
         [SerializeField] private float tiempoAcelerado = 1f;
 
+        [Header("Vista mapa (PiP)")]
+        [Tooltip("Top-down chart view: the vessel visibly turns/advances over a fixed sea. " +
+                 "Use this to judge maneuvers from outside — in world space the room never " +
+                 "rotates (the exterior moves inversely).")]
+        [SerializeField] private bool vistaMapa;
+
         [Header("Safety")]
         [SerializeField] private bool emergencyStop;
         [SerializeField] private bool engineReady = true;
+
+        [Header("Bow calibration (Entrega 1)")]
+        [SerializeField] private bool confirmBow;
+        [SerializeField] private bool flipBow;
+        [SerializeField] private bool clearBowCalibration;
 
         [Header("Readouts (debug)")]
         [SerializeField] private ShipControlState.TelegraphOrder telegraphOrder =
             ShipControlState.TelegraphOrder.Stop;
         [SerializeField] private float actualRudderDeg;
+        [Tooltip("Compass heading. 0 = initial bow direction, increases turning to starboard.")]
+        [SerializeField] private float headingDeg;
+        [Tooltip("Rate of turn, degrees per minute. Positive = turning to starboard.")]
+        [SerializeField] private float rateOfTurnDegMin;
+        [SerializeField] private float speedKnots;
+        [SerializeField] private Vector2 positionEastNorthM;
 
         private ShipControlState _state;
         private bool _syncedTimeScaleFromRunner;
+
+        // Last values this component applied. Writes happen only on slider change so
+        // the physical wheel / panel levers are not stomped every frame.
+        private float _appliedRudder = float.NaN;
+        private float _appliedBowThruster = float.NaN;
+        private float _appliedThrottle = float.NaN;
+        private bool _appliedEmergencyStop;
+        private bool _hasAppliedEmergencyStop;
 
         public float SteeringWheelDeg
         {
@@ -100,8 +125,54 @@ namespace ShipBridgePrototype
                 ApplyToState();
             }
 
+            ShipMapSpectatorCamera.SetVisible(vistaMapa);
+            ApplyBowCalibrationButtons();
+
             actualRudderDeg = _state.ActualRudderAngleDeg;
             telegraphOrder = _state.Telegraph;
+            UpdateNavigationReadouts();
+        }
+
+        private void UpdateNavigationReadouts()
+        {
+            var runner = NavigationSim.UnityLayer.NavigationSimRunner.Instance;
+            if (runner?.Sim == null)
+            {
+                return;
+            }
+
+            var state = runner.Sim.State;
+            headingDeg = (float)state.HeadingDeg;
+            rateOfTurnDegMin = (float)(state.R * Mathf.Rad2Deg * 60.0);
+            speedKnots = (float)(System.Math.Sqrt(state.U * state.U + state.V * state.V) * 1.9438);
+            positionEastNorthM = new Vector2((float)state.East, (float)state.North);
+        }
+
+        private void ApplyBowCalibrationButtons()
+        {
+            var cal = BridgeOrientationCalibration.Instance;
+            if (cal == null)
+            {
+                cal = FindAnyObjectByType<BridgeOrientationCalibration>();
+            }
+
+            if (confirmBow)
+            {
+                confirmBow = false;
+                cal?.ConfirmCurrentFront();
+            }
+
+            if (flipBow)
+            {
+                flipBow = false;
+                cal?.FlipFrontAndAft();
+            }
+
+            if (clearBowCalibration)
+            {
+                clearBowCalibration = false;
+                cal?.ResetCalibration();
+            }
         }
 
         private void ApplyToState()
@@ -111,10 +182,43 @@ namespace ShipBridgePrototype
                 return;
             }
 
-            _state.CommandedRudderAngleDeg = steeringWheelDeg;
-            _state.BowThruster = bowThruster;
-            _state.Telegraph = ResolveTelegraphOrder(avanceRetroceso);
-            _state.EmergencyStop = emergencyStop;
+            // Write only when the slider itself changed; otherwise reflect the live
+            // state so this inspector doubles as a readout and never fights the
+            // physical wheel/levers writing the same fields.
+            if (!Mathf.Approximately(steeringWheelDeg, _appliedRudder))
+            {
+                _state.CommandedRudderAngleDeg = steeringWheelDeg;
+                _appliedRudder = steeringWheelDeg;
+            }
+            else if (!Mathf.Approximately(_state.CommandedRudderAngleDeg, steeringWheelDeg))
+            {
+                steeringWheelDeg = _state.CommandedRudderAngleDeg;
+                _appliedRudder = steeringWheelDeg;
+            }
+
+            if (!Mathf.Approximately(bowThruster, _appliedBowThruster))
+            {
+                _state.BowThruster = bowThruster;
+                _appliedBowThruster = bowThruster;
+            }
+            else if (!Mathf.Approximately(_state.BowThruster, bowThruster))
+            {
+                bowThruster = _state.BowThruster;
+                _appliedBowThruster = bowThruster;
+            }
+
+            if (!Mathf.Approximately(avanceRetroceso, _appliedThrottle))
+            {
+                _state.Telegraph = ResolveTelegraphOrder(avanceRetroceso);
+                _appliedThrottle = avanceRetroceso;
+            }
+
+            if (!_hasAppliedEmergencyStop || emergencyStop != _appliedEmergencyStop)
+            {
+                _state.EmergencyStop = emergencyStop;
+                _appliedEmergencyStop = emergencyStop;
+                _hasAppliedEmergencyStop = true;
+            }
 
             var runner = NavigationSim.UnityLayer.NavigationSimRunner.Instance;
             if (runner != null)
@@ -197,6 +301,11 @@ namespace ShipBridgePrototype
             tiempoAcelerado = 1f;
             emergencyStop = false;
             engineReady = true;
+            // Invalidate caches so the reset force-writes every field.
+            _appliedRudder = float.NaN;
+            _appliedBowThruster = float.NaN;
+            _appliedThrottle = float.NaN;
+            _hasAppliedEmergencyStop = false;
             ApplyToState();
         }
     }

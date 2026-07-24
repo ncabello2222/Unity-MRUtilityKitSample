@@ -60,16 +60,27 @@ namespace ShipBridgePrototype
         [Header("Gizmos")]
         [SerializeField] private bool drawRoleGizmos = true;
         [SerializeField] private float gizmoArrowLength = 0.6f;
+        [SerializeField] private float gizmoForwardArrowLength = 1.4f;
+
+        [Header("Bow calibration")]
+        [SerializeField] [Range(0.3f, 0.95f)] private float restoreDotThreshold = 0.55f;
+        [SerializeField] [Range(-0.95f, -0.3f)] private float oppositeNormalMaxDot = -0.5f;
 
         private Transform _generatedRoot;
         private ExteriorWorldRoot _exteriorWorldRoot;
+        private BridgeReferenceFrame _referenceFrame;
+        private BridgeOrientationCalibration _calibration;
+        private MRUKRoom _activeRoom;
         private readonly Dictionary<WallRole, MRUKAnchor> _classifiedWalls = new();
         private readonly List<(WallRole role, Vector3 center, Vector3 inward)> _gizmoWalls = new();
         private bool _mrukBound;
         private bool _passthroughWasEnabled;
+        private bool _calibrationRestored;
+        private Vector3 _bowForwardWorld = Vector3.forward;
 
         public Transform GeneratedRoot => _generatedRoot;
         public ExteriorWorldRoot ExteriorWorld => _exteriorWorldRoot;
+        public BridgeReferenceFrame ReferenceFrame => _referenceFrame;
         public IReadOnlyDictionary<WallRole, MRUKAnchor> ClassifiedWalls => _classifiedWalls;
 
         private void OnEnable()
@@ -134,6 +145,11 @@ namespace ShipBridgePrototype
         [ContextMenu("Generate Bridge")]
         public void GenerateBridge()
         {
+            GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: true, forcedFront: null);
+        }
+
+        private void GenerateBridgeKeepingFrontChoice(bool preferRestoredCalibration, MRUKAnchor forcedFront)
+        {
             if (MRUK.Instance == null)
             {
                 Debug.LogWarning("[BridgeRoomMapper] MRUK.Instance is null.");
@@ -154,12 +170,19 @@ namespace ShipBridgePrototype
 
             _classifiedWalls.Clear();
             _gizmoWalls.Clear();
+            _activeRoom = room;
+            _calibrationRestored = false;
 
             var rootGo = new GameObject("BridgeGeneratedRoot");
             _generatedRoot = rootGo.transform;
             _generatedRoot.SetParent(transform, false);
 
-            ClassifyWalls(room);
+            if (!ClassifyWalls(room, preferRestoredCalibration, forcedFront))
+            {
+                Debug.LogError("[BridgeRoomMapper] Wall classification failed; bridge not generated.");
+                return;
+            }
+
             CreateFloorAndCeiling(room, _generatedRoot);
             CreateBridgeWalls(room, _generatedRoot);
             CreateRoomObjectProxies(room, _generatedRoot);
@@ -169,10 +192,65 @@ namespace ShipBridgePrototype
                 CreateExteriorEnvironment(room, _generatedRoot);
                 ApplyPassthroughForExterior(false);
             }
+            else
+            {
+                EnsureReferenceFrameWithoutExterior(room);
+            }
 
-            Debug.Log(
-                $"[BridgeRoomMapper] Bridge generated. Front={NameOf(WallRole.Front)}, Aft={NameOf(WallRole.Aft)}, " +
-                $"Port={NameOf(WallRole.Port)}, Starboard={NameOf(WallRole.Starboard)}");
+            EnsureCalibrationComponent(room);
+            LogBridgeFrame();
+        }
+
+        /// <summary>Persist current Front as the confirmed bow.</summary>
+        public void ConfirmFrontCalibration()
+        {
+            if (_activeRoom == null ||
+                !_classifiedWalls.TryGetValue(WallRole.Front, out var front) ||
+                front == null ||
+                _referenceFrame == null)
+            {
+                Debug.LogWarning("[BridgeRoomMapper] Cannot confirm bow: frame not ready.");
+                return;
+            }
+
+            BridgeCalibrationStore.Save(
+                _activeRoom,
+                _referenceFrame.Forward,
+                GetWallWidth(front),
+                GetAnchorWorldCenter(front));
+            _referenceFrame.SetCalibrated(true);
+            _calibrationRestored = true;
+            LogBridgeFrame();
+            Debug.Log("[BridgeRoomMapper] Bow calibration confirmed and saved.");
+        }
+
+        /// <summary>Swap Front/Aft among the long-wall pair and regenerate.</summary>
+        public void FlipFrontAndAft()
+        {
+            if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) ||
+                !_classifiedWalls.TryGetValue(WallRole.Aft, out var aft) ||
+                front == null ||
+                aft == null)
+            {
+                Debug.LogWarning("[BridgeRoomMapper] Cannot flip: Front/Aft not classified.");
+                return;
+            }
+
+            _classifiedWalls[WallRole.Front] = aft;
+            _classifiedWalls[WallRole.Aft] = front;
+            if (_referenceFrame != null)
+            {
+                _referenceFrame.SetCalibrated(false);
+            }
+
+            // Rebuild with the swapped Front, without trying to restore the old save.
+            GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: false, forcedFront: aft);
+        }
+
+        /// <summary>Clear saved bow and regenerate with a camera-proposed Front.</summary>
+        public void RegenerateWithProposedFront()
+        {
+            GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: false, forcedFront: null);
         }
 
         [ContextMenu("Clear Generated Bridge")]
@@ -190,6 +268,7 @@ namespace ShipBridgePrototype
 
             _generatedRoot = null;
             _exteriorWorldRoot = null;
+            _referenceFrame = null;
             _classifiedWalls.Clear();
             _gizmoWalls.Clear();
             ApplyPassthroughForExterior(true);
@@ -202,75 +281,78 @@ namespace ShipBridgePrototype
                 : "(none)";
         }
 
-        private void ClassifyWalls(MRUKRoom room)
+        private bool ClassifyWalls(MRUKRoom room, bool preferRestoredCalibration, MRUKAnchor forcedFront)
         {
             var walls = GetBridgeWallCandidates(room);
             if (walls.Count == 0)
             {
                 Debug.LogWarning("[BridgeRoomMapper] Room has no wall anchors.");
-                return;
+                return false;
             }
 
             var sorted = new List<MRUKAnchor>(walls);
-            // MRUK SortWallsByWidth sorts shortest→longest; we only need a mutable copy + our own ranking.
-            sorted = MRUKRoom.SortWallsByWidth(sorted);
             sorted.Sort((a, b) => GetWallWidth(b).CompareTo(GetWallWidth(a)));
 
             if (sorted.Count < 2)
             {
                 Debug.LogWarning("[BridgeRoomMapper] Need at least two walls to classify front/aft.");
-                return;
+                return false;
             }
 
-            // Prefer the widest opposite-facing pair (true fore/aft on rectangular rooms;
-            // more stable than raw top-2 widths on irregular/L-shaped rooms).
-            if (!TryPickForeAftPair(room, sorted, out var longA, out var longB))
+            // Longitudinal pair = opposite-facing pair with the greatest mean length.
+            // Short walls must never become Front/Aft when a longer opposite pair exists.
+            if (!TryPickLongitudinalPair(room, sorted, out var longA, out var longB, out var meanLength))
             {
+                Debug.LogWarning(
+                    "[BridgeRoomMapper] Irregular room: no opposite long-wall pair found. " +
+                    "Falling back to the two widest walls — verify bow manually.");
                 longA = sorted[0];
                 longB = sorted[1];
+                meanLength = 0.5f * (GetWallWidth(longA) + GetWallWidth(longB));
             }
 
-            var front = ChooseFrontWall(longA, longB);
-            var aft = front == longA ? longB : longA;
+            if (longA == longB)
+            {
+                Debug.LogError("[BridgeRoomMapper] Front/Aft candidates are the same wall.");
+                return false;
+            }
 
+            var fa = Flatten(room.GetFacingDirection(longA)).normalized;
+            var fb = Flatten(room.GetFacingDirection(longB)).normalized;
+            if (fa.sqrMagnitude > 1e-6f && fb.sqrMagnitude > 1e-6f &&
+                Vector3.Dot(fa, fb) > oppositeNormalMaxDot)
+            {
+                Debug.LogWarning(
+                    "[BridgeRoomMapper] Selected Front/Aft normals are not clearly opposite. " +
+                    $"dot={Vector3.Dot(fa, fb):F2}. Classification may be unreliable.");
+            }
+
+            MRUKAnchor front;
+            if (forcedFront == longA || forcedFront == longB)
+            {
+                front = forcedFront;
+                _calibrationRestored = false;
+            }
+            else if (preferRestoredCalibration &&
+                     TryRestoreFrontFromCalibration(room, longA, longB, out front))
+            {
+                _calibrationRestored = true;
+            }
+            else
+            {
+                front = ProposeFrontFromCamera(room, longA, longB);
+                _calibrationRestored = false;
+            }
+
+            var aft = front == longA ? longB : longA;
             _classifiedWalls[WallRole.Front] = front;
             _classifiedWalls[WallRole.Aft] = aft;
 
             var roomCenter = room.GetRoomBounds().center;
-            var toFront = Flatten(GetAnchorWorldCenter(front) - roomCenter);
-            if (toFront.sqrMagnitude < 1e-6f)
-            {
-                toFront = Flatten(-room.GetFacingDirection(front));
-            }
+            _bowForwardWorld = OutwardHorizontal(room, front, roomCenter);
+            var starboardDir = Vector3.Cross(Vector3.up, _bowForwardWorld).normalized;
 
-            toFront.Normalize();
-            var right = Vector3.Cross(Vector3.up, toFront).normalized;
-
-            MRUKAnchor port = null;
-            MRUKAnchor starboard = null;
-            var bestPort = float.PositiveInfinity;
-            var bestStarboard = float.NegativeInfinity;
-
-            foreach (var wall in sorted)
-            {
-                if (wall == front || wall == aft)
-                {
-                    continue;
-                }
-
-                var side = Vector3.Dot(Flatten(GetAnchorWorldCenter(wall) - roomCenter), right);
-                if (side < bestPort)
-                {
-                    bestPort = side;
-                    port = wall;
-                }
-
-                if (side > bestStarboard)
-                {
-                    bestStarboard = side;
-                    starboard = wall;
-                }
-            }
+            ClassifyPortStarboard(sorted, front, aft, roomCenter, starboardDir, out var port, out var starboard);
 
             if (port != null)
             {
@@ -280,6 +362,24 @@ namespace ShipBridgePrototype
             if (starboard != null && starboard != port)
             {
                 _classifiedWalls[WallRole.Starboard] = starboard;
+            }
+            else if (port == null || starboard == null || starboard == port)
+            {
+                Debug.LogWarning(
+                    "[BridgeRoomMapper] Could not assign distinct Port/Starboard walls. " +
+                    "Room may be irregular.");
+            }
+
+            if (port != null && starboard != null && starboard != port)
+            {
+                var portSide = Vector3.Dot(Flatten(GetAnchorWorldCenter(port) - roomCenter), starboardDir);
+                var stbdSide = Vector3.Dot(Flatten(GetAnchorWorldCenter(starboard) - roomCenter), starboardDir);
+                if (portSide * stbdSide >= 0f)
+                {
+                    Debug.LogWarning(
+                        "[BridgeRoomMapper] Port and Starboard are not on opposite sides of the " +
+                        "longitudinal axis. Check room geometry.");
+                }
             }
 
             foreach (var wall in walls)
@@ -303,17 +403,24 @@ namespace ShipBridgePrototype
             {
                 CacheGizmo(WallRole.Starboard, starboard, room);
             }
+
+            Debug.Log(
+                $"[BridgeRoomMapper] Longitudinal pair mean length={meanLength:F2}m. " +
+                $"Front={front.name} ({GetWallWidth(front):F2}m), Aft={aft.name} ({GetWallWidth(aft):F2}m).");
+            return true;
         }
 
-        private static bool TryPickForeAftPair(
+        private bool TryPickLongitudinalPair(
             MRUKRoom room,
             List<MRUKAnchor> wallsSortedWideFirst,
             out MRUKAnchor wallA,
-            out MRUKAnchor wallB)
+            out MRUKAnchor wallB,
+            out float meanLength)
         {
             wallA = null;
             wallB = null;
-            var bestScore = float.NegativeInfinity;
+            meanLength = 0f;
+            var bestMean = float.NegativeInfinity;
 
             for (var i = 0; i < wallsSortedWideFirst.Count; i++)
             {
@@ -337,17 +444,20 @@ namespace ShipBridgePrototype
 
                     fb.Normalize();
 
-                    // Opposite-facing walls have near -1 forward dot.
+                    // Opposite-facing (≈ parallel planes): near -1.
                     var opposite = Vector3.Dot(fa, fb);
-                    if (opposite > -0.5f)
+                    if (opposite > oppositeNormalMaxDot)
                     {
                         continue;
                     }
 
-                    var score = GetWallWidth(a) + GetWallWidth(b) + (-opposite);
-                    if (score > bestScore)
+                    var mean = 0.5f * (GetWallWidth(a) + GetWallWidth(b));
+                    // Prefer longer pair; small boost for more opposite normals.
+                    var score = mean + 0.05f * (-opposite);
+                    if (score > bestMean)
                     {
-                        bestScore = score;
+                        bestMean = score;
+                        meanLength = mean;
                         wallA = a;
                         wallB = b;
                     }
@@ -357,18 +467,55 @@ namespace ShipBridgePrototype
             return wallA != null && wallB != null;
         }
 
-        private static MRUKAnchor ChooseFrontWall(MRUKAnchor a, MRUKAnchor b)
+        private bool TryRestoreFrontFromCalibration(
+            MRUKRoom room,
+            MRUKAnchor longA,
+            MRUKAnchor longB,
+            out MRUKAnchor front)
         {
+            front = null;
+            if (!BridgeCalibrationStore.TryLoad(room, out var record))
+            {
+                return false;
+            }
+
+            var savedForward = Flatten(room.transform.TransformDirection(record.forwardLocalInRoom));
+            if (savedForward.sqrMagnitude < 1e-6f)
+            {
+                return false;
+            }
+
+            savedForward.Normalize();
+            var roomCenter = room.GetRoomBounds().center;
+            var outA = OutwardHorizontal(room, longA, roomCenter);
+            var outB = OutwardHorizontal(room, longB, roomCenter);
+            var dotA = Vector3.Dot(outA, savedForward);
+            var dotB = Vector3.Dot(outB, savedForward);
+            var best = Mathf.Max(dotA, dotB);
+            if (best < restoreDotThreshold)
+            {
+                Debug.LogWarning(
+                    $"[BridgeRoomMapper] Saved bow vector does not match long walls " +
+                    $"(bestDot={best:F2} < {restoreDotThreshold:F2}). Recalibration required.");
+                return false;
+            }
+
+            front = dotA >= dotB ? longA : longB;
+            return true;
+        }
+
+        private static MRUKAnchor ProposeFrontFromCamera(MRUKRoom room, MRUKAnchor a, MRUKAnchor b)
+        {
+            var roomCenter = room.GetRoomBounds().center;
             var cam = Camera.main;
             if (cam == null)
             {
-                // Fallback: wall whose inward normal most opposes world +Z (arbitrary but stable).
-                var scoreA = Vector3.Dot(Flatten(a.transform.forward), Vector3.forward);
-                var scoreB = Vector3.Dot(Flatten(b.transform.forward), Vector3.forward);
-                return scoreA <= scoreB ? a : b;
+                // Stable editor fallback: prefer wall closer to world +Z.
+                var outA = OutwardHorizontal(room, a, roomCenter);
+                var outB = OutwardHorizontal(room, b, roomCenter);
+                return Vector3.Dot(outA, Vector3.forward) >= Vector3.Dot(outB, Vector3.forward) ? a : b;
             }
 
-            var origin = cam.transform.position;
             var look = Flatten(cam.transform.forward);
             if (look.sqrMagnitude < 1e-6f)
             {
@@ -379,8 +526,8 @@ namespace ShipBridgePrototype
                 look.Normalize();
             }
 
-            var toA = Flatten(GetAnchorWorldCenter(a) - origin);
-            var toB = Flatten(GetAnchorWorldCenter(b) - origin);
+            var toA = Flatten(GetAnchorWorldCenter(a) - cam.transform.position);
+            var toB = Flatten(GetAnchorWorldCenter(b) - cam.transform.position);
             if (toA.sqrMagnitude > 1e-6f)
             {
                 toA.Normalize();
@@ -391,8 +538,72 @@ namespace ShipBridgePrototype
                 toB.Normalize();
             }
 
-            // The long wall the user is looking toward when load completes.
+            // Proposal only — user must confirm for persistence.
             return Vector3.Dot(look, toA) >= Vector3.Dot(look, toB) ? a : b;
+        }
+
+        private static void ClassifyPortStarboard(
+            List<MRUKAnchor> walls,
+            MRUKAnchor front,
+            MRUKAnchor aft,
+            Vector3 roomCenter,
+            Vector3 starboardDir,
+            out MRUKAnchor port,
+            out MRUKAnchor starboard)
+        {
+            port = null;
+            starboard = null;
+            var bestPort = float.PositiveInfinity;
+            var bestStarboard = float.NegativeInfinity;
+
+            foreach (var wall in walls)
+            {
+                if (wall == front || wall == aft)
+                {
+                    continue;
+                }
+
+                var side = Vector3.Dot(Flatten(GetAnchorWorldCenter(wall) - roomCenter), starboardDir);
+                if (side < bestPort)
+                {
+                    bestPort = side;
+                    port = wall;
+                }
+
+                if (side > bestStarboard)
+                {
+                    bestStarboard = side;
+                    starboard = wall;
+                }
+            }
+        }
+
+        private static Vector3 OutwardHorizontal(MRUKRoom room, MRUKAnchor wall, Vector3 roomCenter)
+        {
+            // The bow axis must be exactly perpendicular to the wall plane so the
+            // hull/exterior stay square with the room. The room-center direction is
+            // only used to resolve the outward sign (wall anchors are often not
+            // centered on the room bounds, so center→wall alone can be diagonal).
+            var toWall = Flatten(GetAnchorWorldCenter(wall) - roomCenter);
+            var normal = Flatten(room.GetFacingDirection(wall));
+            if (normal.sqrMagnitude > 1e-6f)
+            {
+                normal.Normalize();
+                if (toWall.sqrMagnitude > 1e-6f && Vector3.Dot(normal, toWall) > 0f)
+                {
+                    return normal;
+                }
+
+                // MRUK facing direction points into the room; invert for outward/bow.
+                return -normal;
+            }
+
+            if (toWall.sqrMagnitude > 1e-6f)
+            {
+                return toWall.normalized;
+            }
+
+            return Vector3.forward;
         }
 
         private void CacheGizmo(WallRole role, MRUKAnchor wall, MRUKRoom room)
@@ -624,16 +835,6 @@ namespace ShipBridgePrototype
             wallRoot.SetParent(parent, false);
             wallRoot.SetPositionAndRotation(wall.transform.position, wall.transform.rotation);
 
-            if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) || front == null)
-            {
-                CreateSolidWallPanel(
-                    wallRoot,
-                    "Solid",
-                    new Vector3(rect.center.x, rect.center.y, -wallThickness * 0.5f),
-                    new Vector3(rect.width, rect.height, wallThickness));
-                return;
-            }
-
             var bottomY = rect.yMin;
             var topY = rect.yMax;
             var windowBottom = Mathf.Clamp(bottomY + windowWaistHeight, bottomY + 0.05f, topY - 0.2f);
@@ -642,11 +843,13 @@ namespace ShipBridgePrototype
             var windowCenterY = (windowBottom + windowTop) * 0.5f;
             var z = -wallThickness * 0.5f;
 
-            // Which local-X end faces the front wall?
+            // Which local-X end faces the bow — use BridgeReferenceFrame forward, not a
+            // separate Front-wall search.
             var leftWorld = wall.transform.TransformPoint(new Vector3(rect.xMin, rect.center.y, 0f));
             var rightWorld = wall.transform.TransformPoint(new Vector3(rect.xMax, rect.center.y, 0f));
-            var frontCenter = GetAnchorWorldCenter(front);
-            var frontIsTowardLocalMinX = (leftWorld - frontCenter).sqrMagnitude <= (rightWorld - frontCenter).sqrMagnitude;
+            var bow = _bowForwardWorld.sqrMagnitude > 1e-6f ? _bowForwardWorld : Vector3.forward;
+            var frontIsTowardLocalMinX =
+                Vector3.Dot(Flatten(leftWorld), bow) >= Vector3.Dot(Flatten(rightWorld), bow);
 
             var windowLength = Mathf.Clamp01(sideWindowLengthRatio) * rect.width;
             float windowMinX;
@@ -842,31 +1045,20 @@ namespace ShipBridgePrototype
             exteriorRoot.SetParent(root, false);
             _exteriorWorldRoot = exteriorGo.AddComponent<ExteriorWorldRoot>();
 
-            var roomBounds = room.GetRoomBounds();
-            var roomCenter = roomBounds.center;
-            roomCenter.y = room.FloorAnchor != null ? room.FloorAnchor.transform.position.y : roomBounds.min.y;
-
+            var roomCenter = GetRoomFloorCenter(room);
             var pivotGo = new GameObject("ShipMotionPivot");
             pivotGo.transform.SetParent(root, false);
             pivotGo.transform.position = roomCenter;
 
-            var forward = Vector3.forward;
-            if (_classifiedWalls.TryGetValue(WallRole.Front, out var front) && front != null)
-            {
-                var inward = Flatten(room.GetFacingDirection(front));
-                if (inward.sqrMagnitude > 1e-6f)
-                {
-                    forward = -inward.normalized;
-                }
-                else
-                {
-                    forward = Flatten(GetAnchorWorldCenter(front) - roomCenter).normalized;
-                }
-            }
+            _referenceFrame = pivotGo.AddComponent<BridgeReferenceFrame>();
+            PublishReferenceFrame(room, calibrated: _calibrationRestored);
+
+            var forward = _referenceFrame.Forward;
 
             // Scenario prefabs are authored with +Z = out the front windows.
-            exteriorRoot.SetPositionAndRotation(roomCenter, Quaternion.LookRotation(forward, Vector3.up));
-            pivotGo.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            // ShipMotionPivot.forward must match BridgeReferenceFrame.Forward exactly.
+            exteriorRoot.SetPositionAndRotation(roomCenter, _referenceFrame.Rotation);
+            pivotGo.transform.rotation = _referenceFrame.Rotation;
             _exteriorWorldRoot.SetMotionPivot(pivotGo.transform);
 
             EnsureBridgeSystems(out var motion, out var loader);
@@ -875,6 +1067,76 @@ namespace ShipBridgePrototype
 
             var hullPresenter = systemsHullPresenter(motion.gameObject);
             hullPresenter.BindPivot(pivotGo.transform);
+        }
+
+        private void EnsureReferenceFrameWithoutExterior(MRUKRoom room)
+        {
+            var roomCenter = GetRoomFloorCenter(room);
+            var pivotGo = new GameObject("ShipMotionPivot");
+            pivotGo.transform.SetParent(_generatedRoot, false);
+            pivotGo.transform.position = roomCenter;
+            _referenceFrame = pivotGo.AddComponent<BridgeReferenceFrame>();
+            PublishReferenceFrame(room, calibrated: _calibrationRestored);
+            pivotGo.transform.rotation = _referenceFrame.Rotation;
+        }
+
+        private void PublishReferenceFrame(MRUKRoom room, bool calibrated)
+        {
+            _classifiedWalls.TryGetValue(WallRole.Front, out var front);
+            _classifiedWalls.TryGetValue(WallRole.Aft, out var aft);
+            _classifiedWalls.TryGetValue(WallRole.Port, out var port);
+            _classifiedWalls.TryGetValue(WallRole.Starboard, out var starboard);
+
+            var forward = _bowForwardWorld.sqrMagnitude > 1e-6f
+                ? _bowForwardWorld
+                : Vector3.forward;
+
+            _referenceFrame.Apply(forward, front, aft, port, starboard, calibrated);
+        }
+
+        private void EnsureCalibrationComponent(MRUKRoom room)
+        {
+            if (_calibration == null)
+            {
+                _calibration = GetComponent<BridgeOrientationCalibration>();
+                if (_calibration == null)
+                {
+                    _calibration = gameObject.AddComponent<BridgeOrientationCalibration>();
+                }
+            }
+
+            var needsConfirm = _referenceFrame == null || !_referenceFrame.IsCalibrated;
+            _calibration.Bind(this, room, needsConfirm);
+        }
+
+        private void LogBridgeFrame()
+        {
+            var frame = _referenceFrame;
+            if (frame == null)
+            {
+                return;
+            }
+
+            Debug.Log(
+                "[BridgeRoomMapper] Bridge frame:\n" +
+                $"  Front wall: {NameOf(WallRole.Front)}\n" +
+                $"  Aft wall: {NameOf(WallRole.Aft)}\n" +
+                $"  Port wall: {NameOf(WallRole.Port)}\n" +
+                $"  Starboard wall: {NameOf(WallRole.Starboard)}\n" +
+                $"  Forward world vector: {frame.Forward}\n" +
+                $"  ShipMotionPivot.forward: {(frame.Pivot != null ? frame.Pivot.forward.ToString() : "(null)")}\n" +
+                $"  Calibration restored: {_calibrationRestored}\n" +
+                $"  IsCalibrated: {frame.IsCalibrated}");
+        }
+
+        private static Vector3 GetRoomFloorCenter(MRUKRoom room)
+        {
+            var roomBounds = room.GetRoomBounds();
+            var roomCenter = roomBounds.center;
+            roomCenter.y = room.FloorAnchor != null
+                ? room.FloorAnchor.transform.position.y
+                : roomBounds.min.y;
+            return roomCenter;
         }
 
         private static VesselHullPresenter systemsHullPresenter(GameObject systems)
@@ -1014,7 +1276,7 @@ namespace ShipBridgePrototype
 
         private void OnDrawGizmos()
         {
-            if (!drawRoleGizmos || _gizmoWalls.Count == 0)
+            if (!drawRoleGizmos)
             {
                 return;
             }
@@ -1032,6 +1294,20 @@ namespace ShipBridgePrototype
 #if UNITY_EDITOR
                 UnityEditor.Handles.color = RoleColor(entry.role);
                 UnityEditor.Handles.Label(entry.center + Vector3.up * 0.2f, entry.role.ToString());
+#endif
+            }
+
+            // Yellow arrow: ShipMotionPivot → bow (+Z / Front).
+            var frame = _referenceFrame != null ? _referenceFrame : BridgeReferenceFrame.Instance;
+            if (frame != null && frame.Pivot != null)
+            {
+                Gizmos.color = Color.yellow;
+                var origin = frame.Pivot.position + Vector3.up * 0.05f;
+                Gizmos.DrawRay(origin, frame.Forward * gizmoForwardArrowLength);
+                Gizmos.DrawSphere(origin + frame.Forward * gizmoForwardArrowLength, 0.06f);
+#if UNITY_EDITOR
+                UnityEditor.Handles.color = Color.yellow;
+                UnityEditor.Handles.Label(origin + frame.Forward * gizmoForwardArrowLength, "BOW +Z");
 #endif
             }
         }
