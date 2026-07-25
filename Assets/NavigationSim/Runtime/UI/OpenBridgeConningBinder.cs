@@ -70,14 +70,15 @@ namespace NavigationSim.UnityLayer.UI
 
         private enum Facing
         {
-            /// <summary>Leave the imported rotation alone.</summary>
+            /// <summary>Leave the imported rotation alone: needle roots are turned by their bearing.</summary>
             Keep,
 
-            /// <summary>Sprite is exported pre-rotated, so it must sit level with the compass.</summary>
-            Compass,
-
-            /// <summary>Sprite is exported upright and has to swing with its needle.</summary>
-            Needle
+            /// <summary>
+            /// Sprite is exported already turned to the bearing the design was captured
+            /// at, so it has to be held level with the compass. Turning its needle root
+            /// from there still reads as the live bearing.
+            /// </summary>
+            Compass
         }
 
         /// <summary>
@@ -115,7 +116,7 @@ namespace NavigationSim.UnityLayer.UI
             new CompassNode("Compass/Setpoint/Arrow", 91.1f, 157.8f, 64.94f, 64.94f, Facing.Compass),
 
             new CompassNode("Compass/Heading", 0f, 0f, 63.38f, 507f),
-            new CompassNode("Compass/Heading/Ship", 0f, 0f, 264.25f, 489f, Facing.Needle),
+            new CompassNode("Compass/Heading/Ship", 0f, 0f, 264.25f, 489f, Facing.Compass),
             new CompassNode("Compass/Heading/HDG", 0f, 0f, 63.38f, 507f),
 
             new CompassNode("Compass/COG", 0f, 0f, 63.38f, 507f),
@@ -311,14 +312,9 @@ namespace NavigationSim.UnityLayer.UI
             target.pivot = new Vector2(0.5f, 0.5f);
             target.sizeDelta = node.Size;
 
-            switch (node.Facing)
+            if (node.Facing == Facing.Compass)
             {
-                case Facing.Compass:
-                    target.rotation = compass.rotation;
-                    break;
-                case Facing.Needle:
-                    target.localRotation = Quaternion.identity;
-                    break;
+                target.rotation = compass.rotation;
             }
 
             target.position = compass.TransformPoint(new Vector3(node.Offset.x, node.Offset.y, 0f));
