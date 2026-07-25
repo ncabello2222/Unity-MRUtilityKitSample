@@ -179,13 +179,62 @@ namespace NavigationSim.UnityLayer.UI
 
             int fixedCount = 0;
             fixedCount += ConformToDesign(root);
+            fixedCount += OverrideDesignQuirks(root);
             fixedCount += RepairConningCompass(root);
             fixedCount += DisableBrokenOutlineEffects(root);
             return fixedCount;
         }
 
+        /// <summary>
+        /// Two places where the source file is followed rather than reproduced. Its
+        /// inner topbar was left at the 1220 width of a narrower case and never
+        /// stretched to this one, which leaves a gap down the right of the screen;
+        /// and every value carries a placeholder of faint leading zeros that the
+        /// design never clears, which only clutters a live reading.
+        /// </summary>
+        private static int OverrideDesignQuirks(Transform root)
+        {
+            if (!(FindDescendant(root, CaseRootName) is RectTransform panel))
+            {
+                return 0;
+            }
+
+            int changed = 0;
+            float missing = panel.rect.width - DesignedTopbarWidth;
+
+            if (FindByPath(panel, "Topbar/Topbar") is RectTransform bar)
+            {
+                bar.sizeDelta = new Vector2(bar.rect.width + missing, bar.rect.height);
+                bar.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
+                changed++;
+
+                // The modules sit against the bar's right edge, so they travel with it.
+                if (FindByPath(bar, "Topbar modules") is RectTransform modules)
+                {
+                    modules.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
+                    changed++;
+                }
+            }
+
+            foreach (TMP_Text placeholder in panel.GetComponentsInChildren<TMP_Text>(true))
+            {
+                bool isPlaceholder = placeholder.name == LeadingZeroes || placeholder.name == LeadingDigits;
+                if (isPlaceholder && placeholder.gameObject.activeSelf)
+                {
+                    placeholder.gameObject.SetActive(false);
+                    changed++;
+                }
+            }
+
+            return changed;
+        }
+
         private const string LayoutTable = RenderFolder + "conning-layout";
         private const string CaseRootName = "cases_conning_5.0";
+        private const string LeadingZeroes = "value-zeros";
+        private const string LeadingDigits = "value-digits";
+        private const string LabelUnitGroup = "container-label-unit";
+        private const float DesignedTopbarWidth = 1220f;
 
         private readonly struct DesignRect
         {
@@ -630,6 +679,11 @@ namespace NavigationSim.UnityLayer.UI
 
         private void ConfigureRelevantEquipment()
         {
+            // Heading and course inherited the rate-of-turn unit from the template,
+            // and both read in degrees, which their values already carry.
+            ClearInstrumentUnit(_conningCompass, "HDG");
+            ClearInstrumentUnit(_conningCompass, "COG");
+
             List<Transform> engines = FindAllDescendants(_caseRoot, "Main engine Labeled");
             if (engines.Count > 0)
             {
@@ -729,6 +783,31 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Drops the unit suffix next to an instrument's label, for readings whose
+        /// only unit is the degree sign already drawn beside the value.
+        /// </summary>
+        private static void ClearInstrumentUnit(Transform scope, string label)
+        {
+            TMP_Text labelText = FindTextByExactValue(scope, label);
+            if (labelText == null || labelText.transform.parent == null)
+            {
+                return;
+            }
+
+            Transform labelUnit = labelText.transform.parent.parent;
+            if (labelUnit == null || labelUnit.name != LabelUnitGroup)
+            {
+                return;
+            }
+
+            TMP_Text unit = FindDirectChild(labelUnit, "value-actual")?.GetComponent<TMP_Text>();
+            if (unit != null)
+            {
+                unit.gameObject.SetActive(false);
+            }
         }
 
         private static TMP_Text FindInstrumentInput(Transform scope)
