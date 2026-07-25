@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using NavigationSim.Core;
 using ShipBridgePrototype;
 using TMPro;
@@ -66,15 +67,106 @@ namespace NavigationSim.UnityLayer.UI
             Refresh();
         }
 
-        private static readonly HashSet<string> StretchedSpriteNames = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly Color AccentBlue = new Color32(0x00, 0x70, 0xD6, 0xFF);
+
+        private enum Facing
         {
-            "north-arrow",
-            "BoldLine",
-            "Ship",
-            "Arrow-5",
-            "arrow-medium",
-            "Arrow"
+            /// <summary>Leave the imported rotation alone: needle roots are turned by their bearing.</summary>
+            Keep,
+
+            /// <summary>
+            /// Sprite is exported already turned to the bearing the design was captured
+            /// at, so it has to be held level with the compass. Turning its needle root
+            /// from there still reads as the live bearing.
+            /// </summary>
+            Compass
+        }
+
+        /// <summary>
+        /// Placement of a compass node, taken from the Figma source
+        /// (file wp9RvYJDlsXg5e7aPQNI6o, node 6514:23155 "Conning compass L").
+        /// Offsets are in compass units from its centre, y up.
+        /// </summary>
+        private readonly struct CompassNode
+        {
+            public CompassNode(string path, float offsetX, float offsetY, float width, float height,
+                Facing facing = Facing.Keep)
+            {
+                Path = path;
+                Offset = new Vector2(offsetX, offsetY);
+                Size = new Vector2(width, height);
+                Facing = facing;
+            }
+
+            public string Path { get; }
+            public Vector2 Offset { get; }
+            public Vector2 Size { get; }
+            public Facing Facing { get; }
+        }
+
+        // Parents first: each entry is placed by world position, so a later parent
+        // move would drag already-placed children out of position.
+        private static readonly CompassNode[] CompassLayout =
+        {
+            new CompassNode("Compass/Compass watchface/Watchface/labels/45°", 0f, -0.4f, 491.16f, 491.16f),
+
+            new CompassNode("Compass/Current", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Wind", 0f, 0f, 63.38f, 507f),
+
+            new CompassNode("Compass/Setpoint", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Setpoint/Arrow", 91.1f, 157.8f, 64.94f, 64.94f, Facing.Compass),
+
+            new CompassNode("Compass/Heading", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Heading/Ship", 0f, 0f, 264.25f, 489f, Facing.Compass),
+            new CompassNode("Compass/Heading/HDG", 0f, 0f, 63.38f, 507f),
+
+            new CompassNode("Compass/COG", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/COG/BoldLine", -11.4f, -15f, 189.83f, 248.63f, Facing.Compass),
+            new CompassNode("Compass/COG/Center", 0f, 0f, 15.84f, 15.84f, Facing.Compass)
         };
+
+        /// <summary>
+        /// A Figma boolean operation exports no sprite through FCU, so it leaves an
+        /// Image with a null sprite that Unity draws as an opaque block over the
+        /// compass. Each one is re-rendered from the design at 4x into Resources;
+        /// the children the operation consumed are hidden behind it.
+        /// </summary>
+        private readonly struct BooleanShape
+        {
+            public BooleanShape(string path, string render, float offsetX, float offsetY, float width, float height)
+            {
+                Path = path;
+                Render = render;
+                Offset = new Vector2(offsetX, offsetY);
+                Size = new Vector2(width, height);
+            }
+
+            public string Path { get; }
+            public string Render { get; }
+            public Vector2 Offset { get; }
+            public Vector2 Size { get; }
+        }
+
+        private const string RenderFolder = "OpenBridgeConning/";
+
+        // Sizes are the render bounds Figma reports, which is exactly the pixel size
+        // of the export divided by its 4x scale.
+        private static readonly BooleanShape[] BooleanShapes =
+        {
+            new BooleanShape("Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame",
+                "conning-current-icon", -104f, 204.7f, 30.75f, 46f),
+            new BooleanShape("Compass/Wind/wind-arrow/Icon/Icon frame",
+                "conning-wind-icon", -171.4f, 158.4f, 40.25f, 45.25f),
+            new BooleanShape("Compass/Heading/HDG/HDG",
+                "conning-hdg-needle", 31.5f, 76.3f, 81f, 170.75f),
+            // Figma reports render bounds 32 units off this one's bounding box,
+            // far outside it, where its three siblings here all land within 3.
+            // The box is what puts the arrow on the end of the course line.
+            new BooleanShape("Compass/COG/COG",
+                "conning-cog-arrow", 91.4f, 120.6f, 41.75f, 47f)
+        };
+
+        private static Sprite _dotSprite;
 
         /// <summary>
         /// Fixes FCU import artifacts on a conning hierarchy (scene workspace or runtime clone).
@@ -87,10 +179,379 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             int fixedCount = 0;
-            fixedCount += RepairStretchedSprites(root);
-            fixedCount += RepairStretchedArrowContainers(root);
+            fixedCount += ConformToDesign(root);
+            fixedCount += OverrideDesignQuirks(root);
+            fixedCount += RepairConningCompass(root);
             fixedCount += DisableBrokenOutlineEffects(root);
             return fixedCount;
+        }
+
+        /// <summary>
+        /// Two places where the source file is followed rather than reproduced. Its
+        /// inner topbar was left at the 1220 width of a narrower case and never
+        /// stretched to this one, which leaves a gap down the right of the screen;
+        /// and every value carries a placeholder of faint leading zeros that the
+        /// design never clears, which only clutters a live reading.
+        /// </summary>
+        private static int OverrideDesignQuirks(Transform root)
+        {
+            if (!(FindDescendant(root, CaseRootName) is RectTransform panel))
+            {
+                return 0;
+            }
+
+            int changed = 0;
+            float missing = panel.rect.width - DesignedTopbarWidth;
+
+            if (FindByPath(panel, "Topbar/Topbar") is RectTransform bar)
+            {
+                bar.sizeDelta = new Vector2(bar.rect.width + missing, bar.rect.height);
+                bar.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
+                changed++;
+
+                // The modules sit against the bar's right edge, so they travel with it.
+                if (FindByPath(bar, "Topbar modules") is RectTransform modules)
+                {
+                    modules.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
+                    changed++;
+                }
+            }
+
+            foreach (TMP_Text placeholder in panel.GetComponentsInChildren<TMP_Text>(true))
+            {
+                bool isPlaceholder = placeholder.name == LeadingZeroes || placeholder.name == LeadingDigits;
+                if (isPlaceholder && placeholder.gameObject.activeSelf)
+                {
+                    placeholder.gameObject.SetActive(false);
+                    changed++;
+                }
+            }
+
+            return changed;
+        }
+
+        private const string LayoutTable = RenderFolder + "conning-layout";
+        private const string CaseRootName = "cases_conning_5.0";
+        private const string LeadingZeroes = "value-zeros";
+        private const string LeadingDigits = "value-digits";
+        private const string LabelUnitGroup = "container-label-unit";
+        private const float DesignedTopbarWidth = 1220f;
+
+        private readonly struct DesignRect
+        {
+            public DesignRect(Vector2 centre, Vector2 size)
+            {
+                Centre = centre;
+                Size = size;
+            }
+
+            /// <summary>From the case's top-left corner, y down, as Figma reports it.</summary>
+            public Vector2 Centre { get; }
+
+            public Vector2 Size { get; }
+        }
+
+        /// <summary>
+        /// FCU rebuilds Figma auto-layout out of Unity layout groups and the two
+        /// disagree, so containers come out stretched and drag their contents with
+        /// them. Pin every node the table names to the rect the design gives it and
+        /// switch off the layout components that would push it back.
+        /// </summary>
+        private static int ConformToDesign(Transform root)
+        {
+            if (!(FindDescendant(root, CaseRootName) is RectTransform panel))
+            {
+                return 0;
+            }
+
+            Dictionary<string, DesignRect> table = LoadDesignRects();
+            if (table.Count == 0)
+            {
+                return 0;
+            }
+
+            int pinned = 0;
+            var pending = new Queue<KeyValuePair<Transform, string>>();
+            pending.Enqueue(new KeyValuePair<Transform, string>(panel, string.Empty));
+            var occurrences = new Dictionary<string, int>();
+
+            while (pending.Count > 0)
+            {
+                KeyValuePair<Transform, string> step = pending.Dequeue();
+                occurrences.Clear();
+
+                for (int i = 0; i < step.Key.childCount; i++)
+                {
+                    Transform child = step.Key.GetChild(i);
+                    occurrences.TryGetValue(child.name, out int seen);
+                    occurrences[child.name] = seen + 1;
+
+                    string path = $"{step.Value}/{child.name}#{seen}";
+                    if (child is RectTransform rect && table.TryGetValue(path, out DesignRect design))
+                    {
+                        Pin(panel, rect, design);
+                        pinned++;
+                    }
+
+                    pending.Enqueue(new KeyValuePair<Transform, string>(child, path));
+                }
+            }
+
+            return pinned;
+        }
+
+        private static Dictionary<string, DesignRect> LoadDesignRects()
+        {
+            var table = new Dictionary<string, DesignRect>();
+            var asset = Resources.Load<TextAsset>(LayoutTable);
+            if (asset == null)
+            {
+                return table;
+            }
+
+            foreach (string line in asset.text.Split('\n'))
+            {
+                string[] fields = line.Trim().Split('\t');
+                if (fields.Length != 5)
+                {
+                    continue;
+                }
+
+                table[fields[0]] = new DesignRect(
+                    new Vector2(Parse(fields[1]), Parse(fields[2])),
+                    new Vector2(Parse(fields[3]), Parse(fields[4])));
+            }
+
+            return table;
+        }
+
+        private static float Parse(string value)
+        {
+            return float.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        private static void Pin(RectTransform panel, RectTransform target, DesignRect design)
+        {
+            foreach (Component component in target.GetComponents<Component>())
+            {
+                switch (component)
+                {
+                    case LayoutGroup group:
+                        group.enabled = false;
+                        break;
+                    case ContentSizeFitter fitter:
+                        fitter.enabled = false;
+                        break;
+                    case AspectRatioFitter aspect:
+                        aspect.enabled = false;
+                        break;
+                    case LayoutElement element:
+                        element.enabled = false;
+                        break;
+                }
+            }
+
+            target.anchorMin = new Vector2(0.5f, 0.5f);
+            target.anchorMax = new Vector2(0.5f, 0.5f);
+            target.pivot = new Vector2(0.5f, 0.5f);
+            target.sizeDelta = design.Size;
+
+            Rect area = panel.rect;
+            Vector3 world = panel.TransformPoint(new Vector3(
+                area.xMin + design.Centre.x,
+                area.yMax - design.Centre.y,
+                0f));
+            Vector3 local = target.parent.InverseTransformPoint(world);
+            target.localPosition = new Vector3(local.x, local.y, target.localPosition.z);
+        }
+
+        /// <summary>
+        /// FCU derives anchors for rotated Figma frames from their rotated bounding
+        /// box, which scatters the compass needles, the diagonal labels and the
+        /// arrow heads. Re-place them from the design geometry instead.
+        /// </summary>
+        private static int RepairConningCompass(Transform root)
+        {
+            if (!(FindDescendant(root, "Conning compass L") is RectTransform compass))
+            {
+                return 0;
+            }
+
+            int fixedCount = 0;
+
+            foreach (CompassNode node in CompassLayout)
+            {
+                if (FindByPath(compass, node.Path) is RectTransform target)
+                {
+                    Place(compass, target, node);
+                    fixedCount++;
+                }
+            }
+
+            fixedCount += PlaceDiagonalLabels(compass);
+            fixedCount += RestoreBooleanShapes(compass);
+
+            Image centre = FindImage(compass, "Compass/COG/Center");
+            if (centre != null)
+            {
+                if (centre.sprite == null)
+                {
+                    centre.sprite = GetDotSprite();
+                }
+
+                centre.color = AccentBlue;
+                fixedCount++;
+            }
+
+            return fixedCount;
+        }
+
+        private static int RestoreBooleanShapes(RectTransform compass)
+        {
+            int restored = 0;
+
+            foreach (BooleanShape shape in BooleanShapes)
+            {
+                if (!(FindByPath(compass, shape.Path) is RectTransform target))
+                {
+                    continue;
+                }
+
+                Image image = target.GetComponent<Image>();
+                if (image == null)
+                {
+                    continue;
+                }
+
+                Sprite render = Resources.Load<Sprite>(RenderFolder + shape.Render);
+                if (render == null)
+                {
+                    image.enabled = false;
+                    continue;
+                }
+
+                foreach (Image consumed in target.GetComponentsInChildren<Image>(true))
+                {
+                    if (consumed != image)
+                    {
+                        consumed.enabled = false;
+                    }
+                }
+
+                image.sprite = render;
+                image.color = Color.white;
+                image.type = Image.Type.Simple;
+                image.preserveAspect = false;
+                image.enabled = true;
+
+                Place(compass, target, new CompassNode(shape.Path, shape.Offset.x, shape.Offset.y,
+                    shape.Size.x, shape.Size.y, Facing.Compass));
+                restored++;
+            }
+
+            return restored;
+        }
+
+        /// <summary>
+        /// NE/SW/SE/NW live in a 45°-rotated frame whose own anchors are wrong, so
+        /// their inherited placement is off. Pin them by their design offsets.
+        /// </summary>
+        private static int PlaceDiagonalLabels(RectTransform compass)
+        {
+            RectTransform group = FindByPath(compass, "Compass/Compass watchface/Watchface/labels/45°");
+            if (group == null)
+            {
+                return 0;
+            }
+
+            var offsets = new (string Label, float X, float Y)[]
+            {
+                ("NE", 157.4f, 156.9f),
+                ("SW", -157.4f, -157.8f),
+                ("SE", 157.4f, -157.8f),
+                ("NW", -157.4f, 156.9f)
+            };
+
+            int placed = 0;
+            foreach ((string label, float x, float y) in offsets)
+            {
+                TMP_Text text = FindTextByExactValue(group, label);
+                if (text == null || !(text.transform.parent is RectTransform frame))
+                {
+                    continue;
+                }
+
+                Place(compass, frame, new CompassNode(label, x, y, 46.05f, 46.05f));
+                placed++;
+            }
+
+            return placed;
+        }
+
+        private static void Place(RectTransform compass, RectTransform target, CompassNode node)
+        {
+            target.anchorMin = new Vector2(0.5f, 0.5f);
+            target.anchorMax = new Vector2(0.5f, 0.5f);
+            target.pivot = new Vector2(0.5f, 0.5f);
+            target.sizeDelta = node.Size;
+
+            if (node.Facing == Facing.Compass)
+            {
+                target.rotation = compass.rotation;
+            }
+
+            target.position = compass.TransformPoint(new Vector3(node.Offset.x, node.Offset.y, 0f));
+        }
+
+        private static RectTransform FindByPath(Transform root, string path)
+        {
+            Transform current = root;
+            foreach (string step in path.Split('/'))
+            {
+                current = FindDirectChild(current, step);
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current as RectTransform;
+        }
+
+        private static Image FindImage(Transform root, string path)
+        {
+            RectTransform target = FindByPath(root, path);
+            return target != null ? target.GetComponent<Image>() : null;
+        }
+
+        private static Sprite GetDotSprite()
+        {
+            if (_dotSprite != null)
+            {
+                return _dotSprite;
+            }
+
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+
+            float centre = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float distance = Mathf.Sqrt((x - centre) * (x - centre) + (y - centre) * (y - centre));
+                    float alpha = Mathf.Clamp01(centre - distance);
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+
+            texture.Apply(false, true);
+            _dotSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+            return _dotSprite;
         }
 
         public void Refresh()
@@ -219,6 +680,11 @@ namespace NavigationSim.UnityLayer.UI
 
         private void ConfigureRelevantEquipment()
         {
+            // Heading and course inherited the rate-of-turn unit from the template,
+            // and both read in degrees, which their values already carry.
+            ClearInstrumentUnit(_conningCompass, "HDG");
+            ClearInstrumentUnit(_conningCompass, "COG");
+
             List<Transform> engines = FindAllDescendants(_caseRoot, "Main engine Labeled");
             if (engines.Count > 0)
             {
@@ -261,120 +727,6 @@ namespace NavigationSim.UnityLayer.UI
                 _rudderActual = FindInstrumentOutput(rudder, "Angle");
             }
             DisableFromIndex(rudders, 1);
-        }
-
-        /// <summary>
-        /// FCU often imports thin compass sprites (BoldLine, Ship, north-arrow,
-        /// Arrow) with stretch anchors outside [0,1]. That turns fine needles into
-        /// fat blue/black rectangles. Restore export size (sprites are 4x).
-        /// </summary>
-        private static int RepairStretchedSprites(Transform root)
-        {
-            int fixedCount = 0;
-            foreach (Image image in root.GetComponentsInChildren<Image>(true))
-            {
-                if (image.sprite == null || image.sprite.texture == null)
-                {
-                    continue;
-                }
-
-                bool nameMatch = StretchedSpriteNames.Contains(image.name)
-                                 || StretchedSpriteNames.Contains(image.sprite.name);
-                if (!nameMatch)
-                {
-                    continue;
-                }
-
-                if (TryRepairStretchedRect(
-                        image.rectTransform,
-                        image.sprite.texture.width * 0.25f,
-                        image.sprite.texture.height * 0.25f))
-                {
-                    fixedCount++;
-                }
-            }
-
-            return fixedCount;
-        }
-
-        /// <summary>
-        /// Some Arrow nodes are empty containers with stretch anchors; size them
-        /// from their child Icon frame / Image so tips stop becoming rectangles.
-        /// </summary>
-        private static int RepairStretchedArrowContainers(Transform root)
-        {
-            int fixedCount = 0;
-            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-            {
-                if (child.name != "Arrow" || child is not RectTransform rect)
-                {
-                    continue;
-                }
-
-                if (!HasOutOfRangeAnchors(rect))
-                {
-                    continue;
-                }
-
-                float width = 36f;
-                float height = 46f;
-                Image childImage = child.GetComponentInChildren<Image>(true);
-                if (childImage != null && childImage.sprite != null && childImage.sprite.texture != null)
-                {
-                    width = childImage.sprite.texture.width * 0.25f;
-                    height = childImage.sprite.texture.height * 0.25f;
-                }
-                else
-                {
-                    foreach (Transform nested in child)
-                    {
-                        if (nested is RectTransform nestedRect && nestedRect.sizeDelta.sqrMagnitude > 1f)
-                        {
-                            width = nestedRect.sizeDelta.x;
-                            height = nestedRect.sizeDelta.y;
-                            break;
-                        }
-                    }
-                }
-
-                if (TryRepairStretchedRect(rect, width, height))
-                {
-                    fixedCount++;
-                }
-            }
-
-            return fixedCount;
-        }
-
-        private static bool HasOutOfRangeAnchors(RectTransform rect)
-        {
-            return rect.anchorMin.x < -0.01f || rect.anchorMin.y < -0.01f
-                   || rect.anchorMax.x > 1.01f || rect.anchorMax.y > 1.01f;
-        }
-
-        private static bool TryRepairStretchedRect(RectTransform rect, float width, float height)
-        {
-            bool stretched = HasOutOfRangeAnchors(rect)
-                             || !Mathf.Approximately(rect.anchorMin.x, rect.anchorMax.x)
-                             || !Mathf.Approximately(rect.anchorMin.y, rect.anchorMax.y)
-                             || rect.rect.width > width * 1.5f
-                             || rect.rect.height > height * 1.5f;
-            if (!stretched)
-            {
-                return false;
-            }
-
-            // Keep world placement: FCU used out-of-range anchors for tip offsets.
-            Vector3 worldPosition = rect.position;
-            Quaternion worldRotation = rect.rotation;
-
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(width, height);
-            rect.position = worldPosition;
-            rect.rotation = worldRotation;
-            return true;
         }
 
         /// <summary>
@@ -432,6 +784,31 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             return null;
+        }
+
+        /// <summary>
+        /// Drops the unit suffix next to an instrument's label, for readings whose
+        /// only unit is the degree sign already drawn beside the value.
+        /// </summary>
+        private static void ClearInstrumentUnit(Transform scope, string label)
+        {
+            TMP_Text labelText = FindTextByExactValue(scope, label);
+            if (labelText == null || labelText.transform.parent == null)
+            {
+                return;
+            }
+
+            Transform labelUnit = labelText.transform.parent.parent;
+            if (labelUnit == null || labelUnit.name != LabelUnitGroup)
+            {
+                return;
+            }
+
+            TMP_Text unit = FindDirectChild(labelUnit, "value-actual")?.GetComponent<TMP_Text>();
+            if (unit != null)
+            {
+                unit.gameObject.SetActive(false);
+            }
         }
 
         private static TMP_Text FindInstrumentInput(Transform scope)
