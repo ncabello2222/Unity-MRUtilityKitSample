@@ -66,15 +66,117 @@ namespace NavigationSim.UnityLayer.UI
             Refresh();
         }
 
-        private static readonly HashSet<string> StretchedSpriteNames = new HashSet<string>(StringComparer.Ordinal)
+        private static readonly Color HdgInk = new Color32(0x33, 0x33, 0x33, 0xFF);
+        private static readonly Color AccentBlue = new Color32(0x00, 0x70, 0xD6, 0xFF);
+
+        private enum Facing
         {
-            "north-arrow",
-            "BoldLine",
-            "Ship",
-            "Arrow-5",
-            "arrow-medium",
-            "Arrow"
+            /// <summary>Leave the imported rotation alone.</summary>
+            Keep,
+
+            /// <summary>Sprite is exported pre-rotated, so it must sit level with the compass.</summary>
+            Compass,
+
+            /// <summary>Sprite is exported upright and has to swing with its needle.</summary>
+            Needle
+        }
+
+        /// <summary>
+        /// Placement of a compass node, taken from the Figma source
+        /// (file wp9RvYJDlsXg5e7aPQNI6o, node 6514:23155 "Conning compass L").
+        /// Offsets are in compass units from its centre, y up.
+        /// </summary>
+        private readonly struct CompassNode
+        {
+            public CompassNode(string path, float offsetX, float offsetY, float width, float height,
+                Facing facing = Facing.Keep)
+            {
+                Path = path;
+                Offset = new Vector2(offsetX, offsetY);
+                Size = new Vector2(width, height);
+                Facing = facing;
+            }
+
+            public string Path { get; }
+            public Vector2 Offset { get; }
+            public Vector2 Size { get; }
+            public Facing Facing { get; }
+        }
+
+        // Parents first: each entry is placed by world position, so a later parent
+        // move would drag already-placed children out of position.
+        private static readonly CompassNode[] CompassLayout =
+        {
+            new CompassNode("Compass/Compass watchface/Watchface/labels/45°", 0f, -0.4f, 491.16f, 491.16f),
+
+            new CompassNode("Compass/Current", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Current/Circle compass arrow HDG - Large/Menu icon", -105.3f, 204.2f, 47.53f, 47.53f),
+            new CompassNode("Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame/11-current-2/Icon",
+                -105.5f, 204.1f, 40.48f, 51.89f, Facing.Compass),
+
+            new CompassNode("Compass/Wind", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Wind/wind-arrow/Icon", -171f, 153.4f, 47.53f, 47.53f),
+            new CompassNode("Compass/Wind/wind-arrow/Icon/Icon frame/11-wind-7/Icon",
+                -168.4f, 156.4f, 48.6f, 46.48f, Facing.Compass),
+
+            new CompassNode("Compass/Setpoint", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Setpoint/Arrow", 91.1f, 157.8f, 65f, 65f, Facing.Compass),
+
+            new CompassNode("Compass/Heading", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Heading/Ship", 0f, 0f, 264.25f, 489f, Facing.Needle),
+            new CompassNode("Compass/Heading/HDG", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/Heading/HDG/HDG", 31.5f, 76.3f, 80.9f, 170.5f),
+            new CompassNode("Compass/Heading/HDG/HDG/BoldLine", 0f, 0f, 116.75f, 257.25f, Facing.Compass),
+            new CompassNode("Compass/Heading/HDG/HDG/Center", 0f, 0f, 20.9f, 20.9f, Facing.Compass),
+            new CompassNode("Compass/Heading/HDG/HDG/Arrow", 61.2f, 137.5f, 47.53f, 47.53f),
+            new CompassNode("Compass/Heading/HDG/HDG/Arrow/Icon frame/07-hdg/Icon",
+                61.5f, 138.2f, 51.97f, 56.86f, Facing.Compass),
+
+            new CompassNode("Compass/COG", 0f, 0f, 63.38f, 507f),
+            new CompassNode("Compass/COG/COG", 91.6f, 88.1f, 41.5f, 46.9f),
+            new CompassNode("Compass/COG/COG/Arrow", 90.9f, 120f, 47.53f, 47.53f),
+            new CompassNode("Compass/COG/COG/Arrow/Icon frame", 91.4f, 120.6f, 64.81f, 66.67f, Facing.Compass),
+            new CompassNode("Compass/COG/COG/Arrow/Icon frame/07-hdg/Icon",
+                91.4f, 120.6f, 56.81f, 58.67f, Facing.Compass),
+            new CompassNode("Compass/COG/BoldLine", -11.4f, -15f, 190f, 248.75f, Facing.Compass),
+            new CompassNode("Compass/COG/Center", 0f, 0f, 15.84f, 15.84f, Facing.Compass)
         };
+
+        // Figma boolean operations have no exported sprite, so FCU leaves an Image
+        // with a null sprite behind: Unity draws those as opaque blocks.
+        private static readonly string[] UnexportedBooleanShapes =
+        {
+            "Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame",
+            "Compass/Wind/wind-arrow/Icon/Icon frame",
+            "Compass/Heading/HDG/HDG",
+            "Compass/Heading/HDG/HDG/Arrow/Icon frame",
+            "Compass/COG/COG"
+        };
+
+        // The shapes above carried the boolean fill, so their surviving children
+        // need it applied directly.
+        private static readonly (string Path, Color Color)[] CompassInk =
+        {
+            ("Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame/11-current-2/Icon", AccentBlue),
+            ("Compass/Wind/wind-arrow/Icon/Icon frame/11-wind-7/Icon", AccentBlue),
+            ("Compass/Heading/HDG/HDG/BoldLine", HdgInk),
+            ("Compass/Heading/HDG/HDG/Center", HdgInk),
+            ("Compass/Heading/HDG/HDG/Arrow/Icon frame/07-hdg/Icon", HdgInk),
+            ("Compass/COG/COG/Arrow/Icon frame", AccentBlue),
+            ("Compass/COG/COG/Arrow/Icon frame/07-hdg/Icon", Color.white),
+            ("Compass/COG/Center", AccentBlue)
+        };
+
+        private const string CogArrowOutline = "Compass/COG/COG/Arrow/Icon frame";
+        private const string CogArrowFill = "Compass/COG/COG/Arrow/Icon frame/07-hdg/Icon";
+
+        private static readonly string[] CompassDots =
+        {
+            "Compass/Heading/HDG/HDG/Center",
+            "Compass/COG/Center"
+        };
+
+        private static Sprite _dotSprite;
 
         /// <summary>
         /// Fixes FCU import artifacts on a conning hierarchy (scene workspace or runtime clone).
@@ -87,10 +189,196 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             int fixedCount = 0;
-            fixedCount += RepairStretchedSprites(root);
-            fixedCount += RepairStretchedArrowContainers(root);
+            fixedCount += RepairConningCompass(root);
             fixedCount += DisableBrokenOutlineEffects(root);
             return fixedCount;
+        }
+
+        /// <summary>
+        /// FCU derives anchors for rotated Figma frames from their rotated bounding
+        /// box, which scatters the compass needles, the diagonal labels and the
+        /// arrow heads. Re-place them from the design geometry instead.
+        /// </summary>
+        private static int RepairConningCompass(Transform root)
+        {
+            if (!(FindDescendant(root, "Conning compass L") is RectTransform compass))
+            {
+                return 0;
+            }
+
+            int fixedCount = 0;
+
+            foreach (CompassNode node in CompassLayout)
+            {
+                if (FindByPath(compass, node.Path) is RectTransform target)
+                {
+                    Place(compass, target, node);
+                    fixedCount++;
+                }
+            }
+
+            fixedCount += PlaceDiagonalLabels(compass);
+            fixedCount += OutlineCogArrow(compass);
+
+            foreach (string path in UnexportedBooleanShapes)
+            {
+                Image image = FindImage(compass, path);
+                if (image != null && image.sprite == null)
+                {
+                    image.enabled = false;
+                    fixedCount++;
+                }
+            }
+
+            foreach (string path in CompassDots)
+            {
+                Image dot = FindImage(compass, path);
+                if (dot != null && dot.sprite == null)
+                {
+                    dot.sprite = GetDotSprite();
+                    fixedCount++;
+                }
+            }
+
+            foreach ((string path, Color color) in CompassInk)
+            {
+                Image image = FindImage(compass, path);
+                if (image != null)
+                {
+                    image.color = color;
+                    fixedCount++;
+                }
+            }
+
+            return fixedCount;
+        }
+
+        /// <summary>
+        /// COG reads as a hollow arrow in the design (white fill, blue stroke), but
+        /// the stroke lived on the boolean shape that never exported. Reuse the
+        /// empty shape as an oversized blue copy sitting behind the white one.
+        /// </summary>
+        private static int OutlineCogArrow(RectTransform compass)
+        {
+            Image outline = FindImage(compass, CogArrowOutline);
+            Image fill = FindImage(compass, CogArrowFill);
+            if (outline == null || fill == null || fill.sprite == null)
+            {
+                return 0;
+            }
+
+            outline.sprite = fill.sprite;
+            outline.type = fill.type;
+            outline.preserveAspect = false;
+            outline.enabled = true;
+            return 1;
+        }
+
+        /// <summary>
+        /// NE/SW/SE/NW live in a 45°-rotated frame whose own anchors are wrong, so
+        /// their inherited placement is off. Pin them by their design offsets.
+        /// </summary>
+        private static int PlaceDiagonalLabels(RectTransform compass)
+        {
+            RectTransform group = FindByPath(compass, "Compass/Compass watchface/Watchface/labels/45°");
+            if (group == null)
+            {
+                return 0;
+            }
+
+            var offsets = new (string Label, float X, float Y)[]
+            {
+                ("NE", 157.4f, 156.9f),
+                ("SW", -157.4f, -157.8f),
+                ("SE", 157.4f, -157.8f),
+                ("NW", -157.4f, 156.9f)
+            };
+
+            int placed = 0;
+            foreach ((string label, float x, float y) in offsets)
+            {
+                TMP_Text text = FindTextByExactValue(group, label);
+                if (text == null || !(text.transform.parent is RectTransform frame))
+                {
+                    continue;
+                }
+
+                Place(compass, frame, new CompassNode(label, x, y, 46.05f, 46.05f));
+                placed++;
+            }
+
+            return placed;
+        }
+
+        private static void Place(RectTransform compass, RectTransform target, CompassNode node)
+        {
+            target.anchorMin = new Vector2(0.5f, 0.5f);
+            target.anchorMax = new Vector2(0.5f, 0.5f);
+            target.pivot = new Vector2(0.5f, 0.5f);
+            target.sizeDelta = node.Size;
+
+            switch (node.Facing)
+            {
+                case Facing.Compass:
+                    target.rotation = compass.rotation;
+                    break;
+                case Facing.Needle:
+                    target.localRotation = Quaternion.identity;
+                    break;
+            }
+
+            target.position = compass.TransformPoint(new Vector3(node.Offset.x, node.Offset.y, 0f));
+        }
+
+        private static RectTransform FindByPath(Transform root, string path)
+        {
+            Transform current = root;
+            foreach (string step in path.Split('/'))
+            {
+                current = FindDirectChild(current, step);
+                if (current == null)
+                {
+                    return null;
+                }
+            }
+
+            return current as RectTransform;
+        }
+
+        private static Image FindImage(Transform root, string path)
+        {
+            RectTransform target = FindByPath(root, path);
+            return target != null ? target.GetComponent<Image>() : null;
+        }
+
+        private static Sprite GetDotSprite()
+        {
+            if (_dotSprite != null)
+            {
+                return _dotSprite;
+            }
+
+            const int size = 64;
+            var texture = new Texture2D(size, size, TextureFormat.RGBA32, false)
+            {
+                wrapMode = TextureWrapMode.Clamp,
+                filterMode = FilterMode.Bilinear
+            };
+
+            float centre = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float distance = Mathf.Sqrt((x - centre) * (x - centre) + (y - centre) * (y - centre));
+                    float alpha = Mathf.Clamp01(centre - distance);
+                    texture.SetPixel(x, y, new Color(1f, 1f, 1f, alpha));
+                }
+            }
+
+            texture.Apply(false, true);
+            _dotSprite = Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+            return _dotSprite;
         }
 
         public void Refresh()
@@ -261,120 +549,6 @@ namespace NavigationSim.UnityLayer.UI
                 _rudderActual = FindInstrumentOutput(rudder, "Angle");
             }
             DisableFromIndex(rudders, 1);
-        }
-
-        /// <summary>
-        /// FCU often imports thin compass sprites (BoldLine, Ship, north-arrow,
-        /// Arrow) with stretch anchors outside [0,1]. That turns fine needles into
-        /// fat blue/black rectangles. Restore export size (sprites are 4x).
-        /// </summary>
-        private static int RepairStretchedSprites(Transform root)
-        {
-            int fixedCount = 0;
-            foreach (Image image in root.GetComponentsInChildren<Image>(true))
-            {
-                if (image.sprite == null || image.sprite.texture == null)
-                {
-                    continue;
-                }
-
-                bool nameMatch = StretchedSpriteNames.Contains(image.name)
-                                 || StretchedSpriteNames.Contains(image.sprite.name);
-                if (!nameMatch)
-                {
-                    continue;
-                }
-
-                if (TryRepairStretchedRect(
-                        image.rectTransform,
-                        image.sprite.texture.width * 0.25f,
-                        image.sprite.texture.height * 0.25f))
-                {
-                    fixedCount++;
-                }
-            }
-
-            return fixedCount;
-        }
-
-        /// <summary>
-        /// Some Arrow nodes are empty containers with stretch anchors; size them
-        /// from their child Icon frame / Image so tips stop becoming rectangles.
-        /// </summary>
-        private static int RepairStretchedArrowContainers(Transform root)
-        {
-            int fixedCount = 0;
-            foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-            {
-                if (child.name != "Arrow" || child is not RectTransform rect)
-                {
-                    continue;
-                }
-
-                if (!HasOutOfRangeAnchors(rect))
-                {
-                    continue;
-                }
-
-                float width = 36f;
-                float height = 46f;
-                Image childImage = child.GetComponentInChildren<Image>(true);
-                if (childImage != null && childImage.sprite != null && childImage.sprite.texture != null)
-                {
-                    width = childImage.sprite.texture.width * 0.25f;
-                    height = childImage.sprite.texture.height * 0.25f;
-                }
-                else
-                {
-                    foreach (Transform nested in child)
-                    {
-                        if (nested is RectTransform nestedRect && nestedRect.sizeDelta.sqrMagnitude > 1f)
-                        {
-                            width = nestedRect.sizeDelta.x;
-                            height = nestedRect.sizeDelta.y;
-                            break;
-                        }
-                    }
-                }
-
-                if (TryRepairStretchedRect(rect, width, height))
-                {
-                    fixedCount++;
-                }
-            }
-
-            return fixedCount;
-        }
-
-        private static bool HasOutOfRangeAnchors(RectTransform rect)
-        {
-            return rect.anchorMin.x < -0.01f || rect.anchorMin.y < -0.01f
-                   || rect.anchorMax.x > 1.01f || rect.anchorMax.y > 1.01f;
-        }
-
-        private static bool TryRepairStretchedRect(RectTransform rect, float width, float height)
-        {
-            bool stretched = HasOutOfRangeAnchors(rect)
-                             || !Mathf.Approximately(rect.anchorMin.x, rect.anchorMax.x)
-                             || !Mathf.Approximately(rect.anchorMin.y, rect.anchorMax.y)
-                             || rect.rect.width > width * 1.5f
-                             || rect.rect.height > height * 1.5f;
-            if (!stretched)
-            {
-                return false;
-            }
-
-            // Keep world placement: FCU used out-of-range anchors for tip offsets.
-            Vector3 worldPosition = rect.position;
-            Quaternion worldRotation = rect.rotation;
-
-            rect.anchorMin = new Vector2(0.5f, 0.5f);
-            rect.anchorMax = new Vector2(0.5f, 0.5f);
-            rect.pivot = new Vector2(0.5f, 0.5f);
-            rect.sizeDelta = new Vector2(width, height);
-            rect.position = worldPosition;
-            rect.rotation = worldRotation;
-            return true;
         }
 
         /// <summary>
