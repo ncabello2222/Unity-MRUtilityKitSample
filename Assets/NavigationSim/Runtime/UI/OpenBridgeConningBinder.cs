@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using NavigationSim.Core;
 using ShipBridgePrototype;
 using TMPro;
@@ -177,9 +178,141 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             int fixedCount = 0;
+            fixedCount += ConformToDesign(root);
             fixedCount += RepairConningCompass(root);
             fixedCount += DisableBrokenOutlineEffects(root);
             return fixedCount;
+        }
+
+        private const string LayoutTable = RenderFolder + "conning-layout";
+        private const string CaseRootName = "cases_conning_5.0";
+
+        private readonly struct DesignRect
+        {
+            public DesignRect(Vector2 centre, Vector2 size)
+            {
+                Centre = centre;
+                Size = size;
+            }
+
+            /// <summary>From the case's top-left corner, y down, as Figma reports it.</summary>
+            public Vector2 Centre { get; }
+
+            public Vector2 Size { get; }
+        }
+
+        /// <summary>
+        /// FCU rebuilds Figma auto-layout out of Unity layout groups and the two
+        /// disagree, so containers come out stretched and drag their contents with
+        /// them. Pin every node the table names to the rect the design gives it and
+        /// switch off the layout components that would push it back.
+        /// </summary>
+        private static int ConformToDesign(Transform root)
+        {
+            if (!(FindDescendant(root, CaseRootName) is RectTransform panel))
+            {
+                return 0;
+            }
+
+            Dictionary<string, DesignRect> table = LoadDesignRects();
+            if (table.Count == 0)
+            {
+                return 0;
+            }
+
+            int pinned = 0;
+            var pending = new Queue<KeyValuePair<Transform, string>>();
+            pending.Enqueue(new KeyValuePair<Transform, string>(panel, string.Empty));
+            var occurrences = new Dictionary<string, int>();
+
+            while (pending.Count > 0)
+            {
+                KeyValuePair<Transform, string> step = pending.Dequeue();
+                occurrences.Clear();
+
+                for (int i = 0; i < step.Key.childCount; i++)
+                {
+                    Transform child = step.Key.GetChild(i);
+                    occurrences.TryGetValue(child.name, out int seen);
+                    occurrences[child.name] = seen + 1;
+
+                    string path = $"{step.Value}/{child.name}#{seen}";
+                    if (child is RectTransform rect && table.TryGetValue(path, out DesignRect design))
+                    {
+                        Pin(panel, rect, design);
+                        pinned++;
+                    }
+
+                    pending.Enqueue(new KeyValuePair<Transform, string>(child, path));
+                }
+            }
+
+            return pinned;
+        }
+
+        private static Dictionary<string, DesignRect> LoadDesignRects()
+        {
+            var table = new Dictionary<string, DesignRect>();
+            var asset = Resources.Load<TextAsset>(LayoutTable);
+            if (asset == null)
+            {
+                return table;
+            }
+
+            foreach (string line in asset.text.Split('\n'))
+            {
+                string[] fields = line.Trim().Split('\t');
+                if (fields.Length != 5)
+                {
+                    continue;
+                }
+
+                table[fields[0]] = new DesignRect(
+                    new Vector2(Parse(fields[1]), Parse(fields[2])),
+                    new Vector2(Parse(fields[3]), Parse(fields[4])));
+            }
+
+            return table;
+        }
+
+        private static float Parse(string value)
+        {
+            return float.Parse(value, CultureInfo.InvariantCulture);
+        }
+
+        private static void Pin(RectTransform panel, RectTransform target, DesignRect design)
+        {
+            foreach (Component component in target.GetComponents<Component>())
+            {
+                switch (component)
+                {
+                    case LayoutGroup group:
+                        group.enabled = false;
+                        break;
+                    case ContentSizeFitter fitter:
+                        fitter.enabled = false;
+                        break;
+                    case AspectRatioFitter aspect:
+                        aspect.enabled = false;
+                        break;
+                    case LayoutElement element:
+                        element.enabled = false;
+                        break;
+                }
+            }
+
+            target.anchorMin = new Vector2(0.5f, 0.5f);
+            target.anchorMax = new Vector2(0.5f, 0.5f);
+            target.pivot = new Vector2(0.5f, 0.5f);
+            target.sizeDelta = design.Size;
+
+            Rect area = panel.rect;
+            Vector3 world = panel.TransformPoint(new Vector3(
+                area.xMin + design.Centre.x,
+                area.yMax - design.Centre.y,
+                0f));
+            Vector3 local = target.parent.InverseTransformPoint(world);
+            target.localPosition = new Vector3(local.x, local.y, target.localPosition.z);
         }
 
         /// <summary>
