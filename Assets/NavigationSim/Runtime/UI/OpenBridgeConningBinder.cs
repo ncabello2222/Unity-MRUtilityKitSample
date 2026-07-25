@@ -159,8 +159,9 @@ namespace NavigationSim.UnityLayer.UI
                 "conning-wind-icon", -171.4f, 158.4f, 40.25f, 45.25f),
             new BooleanShape("Compass/Heading/HDG/HDG",
                 "conning-hdg-needle", 31.5f, 76.3f, 81f, 170.75f),
-            // Figma reports render bounds for this one that sit outside its own
-            // bounding box, so the arrow is centred on the box instead.
+            // Figma reports render bounds 32 units off this one's bounding box,
+            // far outside it, where its three siblings here all land within 3.
+            // The box is what puts the arrow on the end of the course line.
             new BooleanShape("Compass/COG/COG",
                 "conning-cog-arrow", 91.4f, 120.6f, 41.75f, 47f)
         };
