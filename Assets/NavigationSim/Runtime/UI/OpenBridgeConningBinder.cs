@@ -66,7 +66,6 @@ namespace NavigationSim.UnityLayer.UI
             Refresh();
         }
 
-        private static readonly Color HdgInk = new Color32(0x33, 0x33, 0x33, 0xFF);
         private static readonly Color AccentBlue = new Color32(0x00, 0x70, 0xD6, 0xFF);
 
         private enum Facing
@@ -110,70 +109,58 @@ namespace NavigationSim.UnityLayer.UI
             new CompassNode("Compass/Compass watchface/Watchface/labels/45°", 0f, -0.4f, 491.16f, 491.16f),
 
             new CompassNode("Compass/Current", 0f, 0f, 63.38f, 507f),
-            new CompassNode("Compass/Current/Circle compass arrow HDG - Large/Menu icon", -105.3f, 204.2f, 47.53f, 47.53f),
-            new CompassNode("Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame/11-current-2/Icon",
-                -105.5f, 204.1f, 40.48f, 51.89f, Facing.Compass),
-
             new CompassNode("Compass/Wind", 0f, 0f, 63.38f, 507f),
-            new CompassNode("Compass/Wind/wind-arrow/Icon", -171f, 153.4f, 47.53f, 47.53f),
-            new CompassNode("Compass/Wind/wind-arrow/Icon/Icon frame/11-wind-7/Icon",
-                -168.4f, 156.4f, 48.6f, 46.48f, Facing.Compass),
 
             new CompassNode("Compass/Setpoint", 0f, 0f, 63.38f, 507f),
-            new CompassNode("Compass/Setpoint/Arrow", 91.1f, 157.8f, 65f, 65f, Facing.Compass),
+            new CompassNode("Compass/Setpoint/Arrow", 91.1f, 157.8f, 64.94f, 64.94f, Facing.Compass),
 
             new CompassNode("Compass/Heading", 0f, 0f, 63.38f, 507f),
             new CompassNode("Compass/Heading/Ship", 0f, 0f, 264.25f, 489f, Facing.Needle),
             new CompassNode("Compass/Heading/HDG", 0f, 0f, 63.38f, 507f),
-            new CompassNode("Compass/Heading/HDG/HDG", 31.5f, 76.3f, 80.9f, 170.5f),
-            new CompassNode("Compass/Heading/HDG/HDG/BoldLine", 0f, 0f, 116.75f, 257.25f, Facing.Compass),
-            new CompassNode("Compass/Heading/HDG/HDG/Center", 0f, 0f, 20.9f, 20.9f, Facing.Compass),
-            new CompassNode("Compass/Heading/HDG/HDG/Arrow", 61.2f, 137.5f, 47.53f, 47.53f),
-            new CompassNode("Compass/Heading/HDG/HDG/Arrow/Icon frame/07-hdg/Icon",
-                61.5f, 138.2f, 51.97f, 56.86f, Facing.Compass),
 
             new CompassNode("Compass/COG", 0f, 0f, 63.38f, 507f),
-            new CompassNode("Compass/COG/COG", 91.6f, 88.1f, 41.5f, 46.9f),
-            new CompassNode("Compass/COG/COG/Arrow", 90.9f, 120f, 47.53f, 47.53f),
-            new CompassNode("Compass/COG/COG/Arrow/Icon frame", 91.4f, 120.6f, 64.81f, 66.67f, Facing.Compass),
-            new CompassNode("Compass/COG/COG/Arrow/Icon frame/07-hdg/Icon",
-                91.4f, 120.6f, 56.81f, 58.67f, Facing.Compass),
-            new CompassNode("Compass/COG/BoldLine", -11.4f, -15f, 190f, 248.75f, Facing.Compass),
+            new CompassNode("Compass/COG/BoldLine", -11.4f, -15f, 189.83f, 248.63f, Facing.Compass),
             new CompassNode("Compass/COG/Center", 0f, 0f, 15.84f, 15.84f, Facing.Compass)
         };
 
-        // Figma boolean operations have no exported sprite, so FCU leaves an Image
-        // with a null sprite behind: Unity draws those as opaque blocks.
-        private static readonly string[] UnexportedBooleanShapes =
+        /// <summary>
+        /// A Figma boolean operation exports no sprite through FCU, so it leaves an
+        /// Image with a null sprite that Unity draws as an opaque block over the
+        /// compass. Each one is re-rendered from the design at 4x into Resources;
+        /// the children the operation consumed are hidden behind it.
+        /// </summary>
+        private readonly struct BooleanShape
         {
-            "Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame",
-            "Compass/Wind/wind-arrow/Icon/Icon frame",
-            "Compass/Heading/HDG/HDG",
-            "Compass/Heading/HDG/HDG/Arrow/Icon frame",
-            "Compass/COG/COG"
-        };
+            public BooleanShape(string path, string render, float offsetX, float offsetY, float width, float height)
+            {
+                Path = path;
+                Render = render;
+                Offset = new Vector2(offsetX, offsetY);
+                Size = new Vector2(width, height);
+            }
 
-        // The shapes above carried the boolean fill, so their surviving children
-        // need it applied directly.
-        private static readonly (string Path, Color Color)[] CompassInk =
+            public string Path { get; }
+            public string Render { get; }
+            public Vector2 Offset { get; }
+            public Vector2 Size { get; }
+        }
+
+        private const string RenderFolder = "OpenBridgeConning/";
+
+        // Sizes are the render bounds Figma reports, which is exactly the pixel size
+        // of the export divided by its 4x scale.
+        private static readonly BooleanShape[] BooleanShapes =
         {
-            ("Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame/11-current-2/Icon", AccentBlue),
-            ("Compass/Wind/wind-arrow/Icon/Icon frame/11-wind-7/Icon", AccentBlue),
-            ("Compass/Heading/HDG/HDG/BoldLine", HdgInk),
-            ("Compass/Heading/HDG/HDG/Center", HdgInk),
-            ("Compass/Heading/HDG/HDG/Arrow/Icon frame/07-hdg/Icon", HdgInk),
-            ("Compass/COG/COG/Arrow/Icon frame", AccentBlue),
-            ("Compass/COG/COG/Arrow/Icon frame/07-hdg/Icon", Color.white),
-            ("Compass/COG/Center", AccentBlue)
-        };
-
-        private const string CogArrowOutline = "Compass/COG/COG/Arrow/Icon frame";
-        private const string CogArrowFill = "Compass/COG/COG/Arrow/Icon frame/07-hdg/Icon";
-
-        private static readonly string[] CompassDots =
-        {
-            "Compass/Heading/HDG/HDG/Center",
-            "Compass/COG/Center"
+            new BooleanShape("Compass/Current/Circle compass arrow HDG - Large/Menu icon/Icon frame",
+                "conning-current-icon", -104f, 204.7f, 30.75f, 46f),
+            new BooleanShape("Compass/Wind/wind-arrow/Icon/Icon frame",
+                "conning-wind-icon", -171.4f, 158.4f, 40.25f, 45.25f),
+            new BooleanShape("Compass/Heading/HDG/HDG",
+                "conning-hdg-needle", 31.5f, 76.3f, 81f, 170.75f),
+            // Figma reports render bounds for this one that sit outside its own
+            // bounding box, so the arrow is centred on the box instead.
+            new BooleanShape("Compass/COG/COG",
+                "conning-cog-arrow", 91.4f, 120.6f, 41.75f, 47f)
         };
 
         private static Sprite _dotSprite;
@@ -218,60 +205,67 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             fixedCount += PlaceDiagonalLabels(compass);
-            fixedCount += OutlineCogArrow(compass);
+            fixedCount += RestoreBooleanShapes(compass);
 
-            foreach (string path in UnexportedBooleanShapes)
+            Image centre = FindImage(compass, "Compass/COG/Center");
+            if (centre != null)
             {
-                Image image = FindImage(compass, path);
-                if (image != null && image.sprite == null)
+                if (centre.sprite == null)
                 {
-                    image.enabled = false;
-                    fixedCount++;
+                    centre.sprite = GetDotSprite();
                 }
-            }
 
-            foreach (string path in CompassDots)
-            {
-                Image dot = FindImage(compass, path);
-                if (dot != null && dot.sprite == null)
-                {
-                    dot.sprite = GetDotSprite();
-                    fixedCount++;
-                }
-            }
-
-            foreach ((string path, Color color) in CompassInk)
-            {
-                Image image = FindImage(compass, path);
-                if (image != null)
-                {
-                    image.color = color;
-                    fixedCount++;
-                }
+                centre.color = AccentBlue;
+                fixedCount++;
             }
 
             return fixedCount;
         }
 
-        /// <summary>
-        /// COG reads as a hollow arrow in the design (white fill, blue stroke), but
-        /// the stroke lived on the boolean shape that never exported. Reuse the
-        /// empty shape as an oversized blue copy sitting behind the white one.
-        /// </summary>
-        private static int OutlineCogArrow(RectTransform compass)
+        private static int RestoreBooleanShapes(RectTransform compass)
         {
-            Image outline = FindImage(compass, CogArrowOutline);
-            Image fill = FindImage(compass, CogArrowFill);
-            if (outline == null || fill == null || fill.sprite == null)
+            int restored = 0;
+
+            foreach (BooleanShape shape in BooleanShapes)
             {
-                return 0;
+                if (!(FindByPath(compass, shape.Path) is RectTransform target))
+                {
+                    continue;
+                }
+
+                Image image = target.GetComponent<Image>();
+                if (image == null)
+                {
+                    continue;
+                }
+
+                Sprite render = Resources.Load<Sprite>(RenderFolder + shape.Render);
+                if (render == null)
+                {
+                    image.enabled = false;
+                    continue;
+                }
+
+                foreach (Image consumed in target.GetComponentsInChildren<Image>(true))
+                {
+                    if (consumed != image)
+                    {
+                        consumed.enabled = false;
+                    }
+                }
+
+                image.sprite = render;
+                image.color = Color.white;
+                image.type = Image.Type.Simple;
+                image.preserveAspect = false;
+                image.enabled = true;
+
+                Place(compass, target, new CompassNode(shape.Path, shape.Offset.x, shape.Offset.y,
+                    shape.Size.x, shape.Size.y, Facing.Compass));
+                restored++;
             }
 
-            outline.sprite = fill.sprite;
-            outline.type = fill.type;
-            outline.preserveAspect = false;
-            outline.enabled = true;
-            return 1;
+            return restored;
         }
 
         /// <summary>
