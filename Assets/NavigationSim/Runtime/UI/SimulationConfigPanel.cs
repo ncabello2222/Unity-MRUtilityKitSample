@@ -372,7 +372,8 @@ namespace NavigationSim.UnityLayer.UI
                 v => env.CurrentSpeedMs = v / 1.9438, 0.1, "F1", 0.0, 8.0);
             AddValueRow("Dir. corriente (hacia) [°]", () => env.CurrentSetToDeg,
                 v => env.CurrentSetToDeg = ShipState.Normalize360(v), 5.0, "F0", -1.0, 360.0);
-            AddValueRow("Viento [m/s]", () => env.WindSpeedMs, v => env.WindSpeedMs = v, 1.0, "F0", 0.0, 45.0);
+            AddValueRow("Viento [kn]", () => env.WindSpeedMs * 1.9438,
+                v => env.WindSpeedMs = v / 1.9438, 2.0, "F0", 0.0, 90.0);
             AddValueRow("Dir. viento (desde) [°]", () => env.WindFromDeg,
                 v => env.WindFromDeg = ShipState.Normalize360(v), 5.0, "F0", -1.0, 360.0);
             AddValueRow("Altura olas Hs [m]", () => env.WaveHeightM, v => env.WaveHeightM = v, 0.25, "F2", 0.0, 9.0);
@@ -415,7 +416,7 @@ namespace NavigationSim.UnityLayer.UI
                 $"POTENCIA EJE {s.ShaftPowerW / 1000.0,8:F0} kW    CARGA {s.EngineLoad,5:P0}\n" +
                 $"COMBUSTIBLE {s.FuelFlowKgPerH,6:F0} kg/h    ACUM. {s.FuelUsedKg,7:F0} kg\n" +
                 $"J {s.AdvanceRatioJ,5:F2}\n" +
-                $"VIENTO {env.WindSpeedMs,4:F0} m/s @ {env.WindFromDeg,3:F0}°   CORRIENTE {env.CurrentSpeedMs * 1.9438,4:F1} kn @ {env.CurrentSetToDeg,3:F0}°\n" +
+                $"VIENTO {env.WindSpeedMs * 1.9438,4:F0} kn @ {env.WindFromDeg,3:F0}°   CORRIENTE {env.CurrentSpeedMs * 1.9438,4:F1} kn @ {env.CurrentSetToDeg,3:F0}°\n" +
                 $"OLAS Hs {env.WaveHeightM,4:F1} m  Tp {env.WavePeriodS,4:F1} s @ {env.WaveFromDeg,3:F0}°\n" +
                 $"HEAVE {s.HeaveM,5:F2} m   ROLL {s.RollDeg,5:F1}°   PITCH {s.PitchDeg,5:F1}°\n" +
                 $"POS N {s.North,8:F0} m   E {s.East,8:F0} m    t {s.TimeS,7:F0} s\n" +

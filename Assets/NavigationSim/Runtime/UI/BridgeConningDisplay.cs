@@ -622,7 +622,7 @@ namespace NavigationSim.UnityLayer.UI
             SetText(_sogValue, $"{sogKn:0.0}");
             SetText(_stwValue, $"{stwKn:0.0}");
             SetText(_cogValue, $"{s.CogDeg:000.0}");
-            SetText(_windValue, $"{env.WindSpeedMs:0.0} m/s  {env.WindFromDeg:000}°");
+            SetText(_windValue, $"{env.WindSpeedMs * 1.94384449244:0.0} kn  {env.WindFromDeg:000}°");
             SetText(_currentValue, $"{env.CurrentSpeedMs * 1.94384449244:0.0} kn  {env.CurrentSetToDeg:000}°");
 
             SetText(_compassHdg, $"{s.HeadingDeg:000.0}°");

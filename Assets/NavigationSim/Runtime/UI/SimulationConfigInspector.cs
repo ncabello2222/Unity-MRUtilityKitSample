@@ -1,4 +1,4 @@
-using NavigationSim.Core;
+﻿using NavigationSim.Core;
 using ShipBridgePrototype;
 using UnityEngine;
 
@@ -100,8 +100,8 @@ namespace NavigationSim.UnityLayer.UI
         [SerializeField] private float corrienteKn;
         [Range(0f, 360f)]
         [SerializeField] private float dirCorrienteHaciaDeg;
-        [Range(0f, 45f)]
-        [SerializeField] private float vientoMs;
+        [Range(0f, 90f)]
+        [SerializeField] private float vientoKn;
         [Range(0f, 360f)]
         [SerializeField] private float dirVientoDesdeDeg;
         [Range(0f, 9f)]
@@ -258,7 +258,7 @@ namespace NavigationSim.UnityLayer.UI
 
             corrienteKn = (float)(env.CurrentSpeedMs * 1.9438);
             dirCorrienteHaciaDeg = (float)env.CurrentSetToDeg;
-            vientoMs = (float)env.WindSpeedMs;
+            vientoKn = (float)(env.WindSpeedMs * 1.9438);
             dirVientoDesdeDeg = (float)env.WindFromDeg;
             alturaOlasHsM = (float)env.WaveHeightM;
             periodoPicoTpS = (float)env.WavePeriodS;
@@ -349,7 +349,7 @@ namespace NavigationSim.UnityLayer.UI
             var env = _runner.Env;
             env.CurrentSpeedMs = corrienteKn / 1.9438;
             env.CurrentSetToDeg = ShipState.Normalize360(dirCorrienteHaciaDeg);
-            env.WindSpeedMs = vientoMs;
+            env.WindSpeedMs = vientoKn / 1.9438;
             env.WindFromDeg = ShipState.Normalize360(dirVientoDesdeDeg);
             env.WaveHeightM = alturaOlasHsM;
             env.WavePeriodS = periodoPicoTpS;
@@ -458,7 +458,7 @@ namespace NavigationSim.UnityLayer.UI
                 _applied.BombaGobierno2 != bombaGobierno2 ||
                 !Approx(_applied.CorrienteKn, corrienteKn) ||
                 !Approx(_applied.DirCorrienteHaciaDeg, dirCorrienteHaciaDeg) ||
-                !Approx(_applied.VientoMs, vientoMs) ||
+                !Approx(_applied.VientoKn, vientoKn) ||
                 !Approx(_applied.DirVientoDesdeDeg, dirVientoDesdeDeg) ||
                 !Approx(_applied.AlturaOlasHsM, alturaOlasHsM) ||
                 !Approx(_applied.PeriodoPicoTpS, periodoPicoTpS) ||
@@ -514,7 +514,7 @@ namespace NavigationSim.UnityLayer.UI
                 BombaGobierno2 = bombaGobierno2,
                 CorrienteKn = corrienteKn,
                 DirCorrienteHaciaDeg = dirCorrienteHaciaDeg,
-                VientoMs = vientoMs,
+                VientoKn = vientoKn,
                 DirVientoDesdeDeg = dirVientoDesdeDeg,
                 AlturaOlasHsM = alturaOlasHsM,
                 PeriodoPicoTpS = periodoPicoTpS,
@@ -546,7 +546,7 @@ namespace NavigationSim.UnityLayer.UI
             public float RumboAutopilotoDeg, TimonMaximoDeg, VelocidadTimonDegS;
             public float ApKp, ApKi, ApKd, ApLimiteTimonDeg;
             public bool BombaGobierno1, BombaGobierno2;
-            public float CorrienteKn, DirCorrienteHaciaDeg, VientoMs, DirVientoDesdeDeg;
+            public float CorrienteKn, DirCorrienteHaciaDeg, VientoKn, DirVientoDesdeDeg;
             public float AlturaOlasHsM, PeriodoPicoTpS, DirOleajeDesdeDeg, PeriodoBalanceS;
             public float ProfundidadM, DensidadAgua;
         }
