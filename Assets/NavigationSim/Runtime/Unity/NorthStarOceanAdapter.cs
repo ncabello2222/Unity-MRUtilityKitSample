@@ -30,6 +30,16 @@ namespace NavigationSim.UnityLayer
         private static readonly int GiantWaveOffsetId = Shader.PropertyToID("_GiantWaveOffset");
         private static readonly int SmoothnessCloseId = Shader.PropertyToID("_Smoothness_Close");
 
+        public enum OceanQualityMode
+        {
+            /// <summary>64 on Quest / Android device builds, 128 on PC and Editor.</summary>
+            Auto = 0,
+            /// <summary>Force 64 FFT — Quest default and a lighter PC option.</summary>
+            Performance = 1,
+            /// <summary>Force 128 FFT — high quality for PC or a Quest stress test.</summary>
+            High = 2
+        }
+
         [SerializeField] private Material oceanMaterial;
         [SerializeField] private bool hideScenarioWaterPlanes = true;
         [Tooltip("Ocean surface Y relative to ShipMotionPivot. Bridge floor≈0; hull deck≈-BridgeHeight; waterline a few meters below deck.")]
@@ -37,7 +47,10 @@ namespace NavigationSim.UnityLayer
         [Tooltip("When true, waterline tracks the active vessel (deck height + freeboard).")]
         [SerializeField] private bool autoWaterlineFromHull = true;
         [SerializeField] private float freeboardBelowDeckM = 2.5f;
-        [SerializeField] private int simulationResolution = 128;
+        [Tooltip("Auto = 64 on Quest, 128 on PC. High keeps 128 everywhere.")]
+        [SerializeField] private OceanQualityMode oceanQuality = OceanQualityMode.Auto;
+        [Tooltip("iFFT update rate. Viewer stays at the XR refresh rate; textures are reused between ticks.")]
+        [SerializeField] [Range(15f, 72f)] private float simulationUpdateHz = 30f;
         [SerializeField] private float oceanSize = 1024f;
         [Tooltip("When true, translates the FFT field with the exterior-world transform so crests stay glued to the terrain while the bridge stays fixed.")]
         [SerializeField] private bool scrollWavesWithVirtualPosition = true;
@@ -61,6 +74,11 @@ namespace NavigationSim.UnityLayer
         private float _driveFromDeg;
         private bool _renderHooked;
         private bool _jobsCompletedThisFrame;
+        private float _simulationAccumulator;
+        private float _cachedWindYaw = float.NaN;
+        private bool _windPitchApplied;
+        private bool _seakeepingSurfaceAssigned;
+        private bool _lastUseSurfaceSampling;
 
         public static NorthStarOceanAdapter Instance { get; private set; }
 
@@ -288,11 +306,12 @@ namespace NavigationSim.UnityLayer
             SetAutoProperty(_profile, "OceanMaterial", oceanMaterial);
             SetAutoProperty(_profile, "OceanSettings", new OceanSettings());
 
+            var resolution = ResolveSimulationResolution();
             var simGo = new GameObject("OceanSimulation");
             simGo.transform.SetParent(_oceanRoot, false);
             simGo.SetActive(false);
             _oceanSimulation = simGo.AddComponent<OceanSimulation>();
-            SetPrivateField(_oceanSimulation, "m_resolution", Mathf.ClosestPowerOfTwo(Mathf.Clamp(simulationResolution, 32, 512)));
+            SetPrivateField(_oceanSimulation, "m_resolution", resolution);
             _oceanSimulation.Profile = _profile;
             simGo.SetActive(true);
 
@@ -307,8 +326,36 @@ namespace NavigationSim.UnityLayer
 
             _propertyBlock = new MaterialPropertyBlock();
             _patchSize = Mathf.Max(1f, _profile.OceanSettings.PatchSize);
+            // Prime so the first LateUpdate produces displacement/normal maps immediately.
+            _simulationAccumulator = 1f / Mathf.Max(1f, simulationUpdateHz);
+            _cachedWindYaw = float.NaN;
+            _windPitchApplied = false;
 
-            Debug.Log("[NorthStarOceanAdapter] North Star iFFT ocean spawned under OceanRoot.");
+            Debug.Log(
+                $"[NorthStarOceanAdapter] North Star iFFT ocean spawned under OceanRoot " +
+                $"(FFT={resolution}, simHz={simulationUpdateHz:0.#}, quality={oceanQuality}).");
+        }
+
+        private int ResolveSimulationResolution()
+        {
+            switch (oceanQuality)
+            {
+                case OceanQualityMode.Performance:
+                    return 64;
+                case OceanQualityMode.High:
+                    return 128;
+                default:
+                    return IsQuestRuntime() ? 64 : 128;
+            }
+        }
+
+        private static bool IsQuestRuntime()
+        {
+#if UNITY_ANDROID && !UNITY_EDITOR
+            return true;
+#else
+            return false;
+#endif
         }
 
         private void EnsureOceanMaterial()
@@ -343,7 +390,24 @@ namespace NavigationSim.UnityLayer
                 return;
             }
 
-            _oceanSimulation.Profile = _profile;
+            // Keep the headset at its native refresh (e.g. 72 Hz) while the iFFT
+            // spectrum runs at a lower cadence and the last displacement/normal
+            // textures are reused by OnBeginContextRendering.
+            float hz = Mathf.Max(1f, simulationUpdateHz);
+            _simulationAccumulator += Time.deltaTime;
+            float interval = 1f / hz;
+            if (_simulationAccumulator < interval)
+            {
+                return;
+            }
+
+            _simulationAccumulator %= interval;
+
+            if (!ReferenceEquals(_oceanSimulation.Profile, _profile))
+            {
+                _oceanSimulation.Profile = _profile;
+            }
+
             _oceanSimulation.UpdateSimulation(BuildWindVector());
         }
 
@@ -387,8 +451,18 @@ namespace NavigationSim.UnityLayer
                 _profile.Version++;
             }
 
-            SetAutoProperty(_profile, "WindYaw", Mathf.Repeat(drive.WindFromDeg, 360f));
-            SetAutoProperty(_profile, "WindPitch", 90f);
+            float yaw = Mathf.Repeat(drive.WindFromDeg, 360f);
+            if (float.IsNaN(_cachedWindYaw) || !Mathf.Approximately(_cachedWindYaw, yaw))
+            {
+                SetAutoProperty(_profile, "WindYaw", yaw);
+                _cachedWindYaw = yaw;
+            }
+
+            if (!_windPitchApplied)
+            {
+                SetAutoProperty(_profile, "WindPitch", 90f);
+                _windPitchApplied = true;
+            }
 
             float hs = Mathf.Clamp01((float)(env.WaveHeightM / 6.0));
             if (oceanMaterial.HasProperty("_Foam_Crest_Offset"))
@@ -416,8 +490,19 @@ namespace NavigationSim.UnityLayer
                 return;
             }
 
-            runner.Sim.Waves.Surface = this;
-            runner.Sim.Waves.UseSurfaceSampling = IsReady;
+            var waves = runner.Sim.Waves;
+            if (!_seakeepingSurfaceAssigned || !ReferenceEquals(waves.Surface, this))
+            {
+                waves.Surface = this;
+                _seakeepingSurfaceAssigned = true;
+            }
+
+            bool useSampling = IsReady;
+            if (useSampling != _lastUseSurfaceSampling)
+            {
+                waves.UseSurfaceSampling = useSampling;
+                _lastUseSurfaceSampling = useSampling;
+            }
         }
 
         private void UpdateOceanPose()
