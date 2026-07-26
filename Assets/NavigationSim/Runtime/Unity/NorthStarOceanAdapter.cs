@@ -178,7 +178,6 @@ namespace NavigationSim.UnityLayer
             }
 
             UpdateOceanPose();
-            HideScenarioWaterIfNeeded();
             TickSimulation();
         }
 
@@ -568,6 +567,11 @@ namespace NavigationSim.UnityLayer
             _hasPivot = true;
         }
 
+        /// <summary>
+        /// One-shot hierarchy walk used from Start / NotifyExteriorChanged only.
+        /// Must not run every frame: GetComponentsInChildren allocates and the water
+        /// planes stay disabled once found.
+        /// </summary>
         private void HideScenarioWaterIfNeeded()
         {
             if (!hideScenarioWaterPlanes)
