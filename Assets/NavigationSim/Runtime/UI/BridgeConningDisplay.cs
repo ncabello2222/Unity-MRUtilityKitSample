@@ -1,4 +1,5 @@
 using System;
+using System.Collections;
 using NavigationSim.Core;
 using ShipBridgePrototype;
 using TMPro;
@@ -20,6 +21,9 @@ namespace NavigationSim.UnityLayer.UI
         private const float CanvasWidth = 1480f;
         private const float CanvasHeight = 900f;
         private const float RefreshInterval = 0.12f;
+
+        /// <summary>Where the panel waits while it is built, well clear of the room.</summary>
+        private static readonly Vector3 PrewarmPosition = new Vector3(0f, -1000f, 0f);
 
         private const float RotCautionDpm = 30f;
         private const float RotAlarmDpm = 60f;
@@ -47,8 +51,10 @@ namespace NavigationSim.UnityLayer.UI
 
         private NavigationSimRunner _runner;
         private GameObject _canvasRoot;
+        private Canvas _canvas;
         private OpenBridgeConningBinder _openBridgeBinder;
         private float _refreshTimer;
+        private bool _openWhenReady;
 
         private TMP_Text _hdgValue;
         private TMP_Text _rotValue;
@@ -100,21 +106,18 @@ namespace NavigationSim.UnityLayer.UI
         private void Awake()
         {
             _runner = GetComponent<NavigationSimRunner>();
+        }
 
-            // The FCU scene object is an import workspace, not the runtime panel.
-            // Keep it hidden until Open() clones only the conning case.
-            GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
-            if (importedRoot != null)
-            {
-                importedRoot.SetActive(false);
-            }
+        private void Start()
+        {
+            StartCoroutine(PrewarmPanel());
         }
 
         private void Update()
         {
             if (TogglePressed())
             {
-                if (IsOpen)
+                if (IsOpen || _openWhenReady)
                 {
                     Close();
                 }
@@ -158,28 +161,34 @@ namespace NavigationSim.UnityLayer.UI
 
         public void Open()
         {
-            if (_canvasRoot == null)
+            if (_canvas == null)
             {
-                if (!BuildImportedOpenBridgeCanvas())
-                {
-                    EnsureSprites();
-                    BuildCanvas();
-                }
+                // Still being built; it opens as soon as the prewarm finishes.
+                _openWhenReady = true;
+                return;
             }
 
             PlaceInFrontOfCamera();
-            _canvasRoot.SetActive(true);
+            _canvas.enabled = true;
             IsOpen = true;
-            _refreshTimer = 0f;
+            _refreshTimer = RefreshInterval;
+
+            if (_runner != null && _runner.Sim != null)
+            {
+                RefreshInstruments();
+            }
         }
 
         public void Close()
         {
-            if (_canvasRoot != null)
+            // Only the Canvas goes off. Deactivating the root would re-run OnEnable
+            // across the whole panel and rebuild its layout on the way back in.
+            if (_canvas != null)
             {
-                _canvasRoot.SetActive(false);
+                _canvas.enabled = false;
             }
 
+            _openWhenReady = false;
             IsOpen = false;
         }
 
@@ -206,37 +215,100 @@ namespace NavigationSim.UnityLayer.UI
         //  Build
         // ─────────────────────────────────────────────────────────────────────
 
-        private bool BuildImportedOpenBridgeCanvas()
+        /// <summary>
+        /// Building the panel costs far more than a frame, so it is built while
+        /// the room scan and the bridge generation still have the user's
+        /// attention, one step per frame, and parked off to the side with its
+        /// Canvas switched off. Pressing Y then only has to place it and switch
+        /// the Canvas back on.
+        /// </summary>
+        private IEnumerator PrewarmPanel()
         {
+            HideSceneImport();
+
+            ResourceRequest request = Resources.LoadAsync<GameObject>(OpenBridgeConningBinder.RuntimePrefabResource);
+            yield return request;
+
             // The baked prefab is the import already repaired and stripped of the
             // converter's bookkeeping; the scene import is the fallback.
-            GameObject prebaked = Resources.Load<GameObject>(OpenBridgeConningBinder.RuntimePrefabResource);
+            var prebaked = request.asset as GameObject;
             GameObject source = prebaked != null ? prebaked : FindImportedCase();
-            if (source == null)
+
+            GameObject runtimeCase = null;
+            if (source != null)
             {
-                return false;
+                runtimeCase = CloneOpenBridgeCase(source);
+                yield return null;
+
+                _openBridgeBinder = runtimeCase.AddComponent<OpenBridgeConningBinder>();
+                _openBridgeBinder.Initialize(_runner, prebaked != null);
+
+                Debug.Log(prebaked != null
+                    ? "[BridgeConningDisplay] Using the baked OpenBridge conning panel with live simulation bindings."
+                    : "[BridgeConningDisplay] Using the FCU scene import with live simulation bindings. Bake a runtime panel from Tools > NavigationSim.");
+            }
+            else
+            {
+                EnsureSprites();
+                BuildCanvas();
+                _canvas = _canvasRoot.GetComponent<Canvas>();
+                _canvasRoot.transform.position = PrewarmPosition;
             }
 
+            yield return null;
+
+            WarmCanvas();
+            _canvas.enabled = false;
+
+            if (_openWhenReady)
+            {
+                _openWhenReady = false;
+                Open();
+            }
+        }
+
+        private GameObject CloneOpenBridgeCase(GameObject source)
+        {
             _canvasRoot = OpenBridgeConningBinder.CreateWorldCanvas("BridgeConningCanvas_OpenBridge", transform);
+            _canvas = _canvasRoot.GetComponent<Canvas>();
+
+            // Out of sight until the first Open() places it: the Canvas has to
+            // stay on for these few frames so its geometry actually gets built.
+            _canvasRoot.transform.position = PrewarmPosition;
 
             GameObject runtimeCase = Instantiate(source, _canvasRoot.transform, false);
             runtimeCase.name = "cases_conning_5.0_Runtime";
             runtimeCase.SetActive(true);
             OpenBridgeConningBinder.FitToCanvas(runtimeCase.transform as RectTransform);
+            return runtimeCase;
+        }
 
-            _openBridgeBinder = runtimeCase.AddComponent<OpenBridgeConningBinder>();
-            _openBridgeBinder.Initialize(_runner, prebaked != null);
+        /// <summary>
+        /// Pays for the first batch build and for every TMP mesh now, so that the
+        /// frame the panel opens on does not have to.
+        /// </summary>
+        private void WarmCanvas()
+        {
+            Canvas.ForceUpdateCanvases();
 
+            // Only what will actually draw: the import leaves plenty of text
+            // parked in inactive branches.
+            foreach (TMP_Text text in _canvasRoot.GetComponentsInChildren<TMP_Text>(false))
+            {
+                text.ForceMeshUpdate();
+            }
+
+            Canvas.ForceUpdateCanvases();
+        }
+
+        /// <summary>The FCU import is a workspace, not the runtime panel.</summary>
+        private static void HideSceneImport()
+        {
             GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
             if (importedRoot != null)
             {
                 importedRoot.SetActive(false);
             }
-
-            Debug.Log(prebaked != null
-                ? "[BridgeConningDisplay] Using the baked OpenBridge conning panel with live simulation bindings."
-                : "[BridgeConningDisplay] Using the FCU scene import with live simulation bindings. Bake a runtime panel from Tools > NavigationSim.");
-            return true;
         }
 
         private static GameObject FindImportedCase()
