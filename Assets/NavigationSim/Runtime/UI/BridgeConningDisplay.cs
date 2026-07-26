@@ -208,60 +208,55 @@ namespace NavigationSim.UnityLayer.UI
 
         private bool BuildImportedOpenBridgeCanvas()
         {
-            GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
-            if (importedRoot == null)
+            // The baked prefab is the import already repaired and stripped of the
+            // converter's bookkeeping; the scene import is the fallback.
+            GameObject prebaked = Resources.Load<GameObject>(OpenBridgeConningBinder.RuntimePrefabResource);
+            GameObject source = prebaked != null ? prebaked : FindImportedCase();
+            if (source == null)
             {
                 return false;
             }
 
-            Transform importedCase = null;
+            _canvasRoot = OpenBridgeConningBinder.CreateWorldCanvas("BridgeConningCanvas_OpenBridge", transform);
+
+            GameObject runtimeCase = Instantiate(source, _canvasRoot.transform, false);
+            runtimeCase.name = "cases_conning_5.0_Runtime";
+            runtimeCase.SetActive(true);
+            OpenBridgeConningBinder.FitToCanvas(runtimeCase.transform as RectTransform);
+
+            _openBridgeBinder = runtimeCase.AddComponent<OpenBridgeConningBinder>();
+            _openBridgeBinder.Initialize(_runner, prebaked != null);
+
+            GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
+            if (importedRoot != null)
+            {
+                importedRoot.SetActive(false);
+            }
+
+            Debug.Log(prebaked != null
+                ? "[BridgeConningDisplay] Using the baked OpenBridge conning panel with live simulation bindings."
+                : "[BridgeConningDisplay] Using the FCU scene import with live simulation bindings. Bake a runtime panel from Tools > NavigationSim.");
+            return true;
+        }
+
+        private static GameObject FindImportedCase()
+        {
+            GameObject importedRoot = FindSceneObject("OpenBridge_FCU");
+            if (importedRoot == null)
+            {
+                return null;
+            }
+
             foreach (Transform child in importedRoot.GetComponentsInChildren<Transform>(true))
             {
                 if (child.name == "cases_conning_5.0")
                 {
-                    importedCase = child;
-                    break;
+                    return child.gameObject;
                 }
             }
 
-            if (importedCase == null)
-            {
-                Debug.LogWarning("[BridgeConningDisplay] OpenBridge_FCU exists, but cases_conning_5.0 was not found. Using fallback UI.");
-                return false;
-            }
-
-            _canvasRoot = new GameObject("BridgeConningCanvas_OpenBridge");
-            _canvasRoot.transform.SetParent(transform, false);
-
-            var canvas = _canvasRoot.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.WorldSpace;
-            _canvasRoot.AddComponent<GraphicRaycaster>();
-
-            var canvasRect = _canvasRoot.GetComponent<RectTransform>();
-            canvasRect.sizeDelta = new Vector2(1920f, 1080f);
-            _canvasRoot.transform.localScale = Vector3.one * 0.001f;
-
-            GameObject runtimeCase = Instantiate(importedCase.gameObject, _canvasRoot.transform, false);
-            runtimeCase.name = "cases_conning_5.0_Runtime";
-            runtimeCase.SetActive(true);
-
-            if (runtimeCase.transform is RectTransform caseRect)
-            {
-                caseRect.anchorMin = new Vector2(0.5f, 0.5f);
-                caseRect.anchorMax = new Vector2(0.5f, 0.5f);
-                caseRect.pivot = new Vector2(0.5f, 0.5f);
-                caseRect.anchoredPosition = Vector2.zero;
-                caseRect.sizeDelta = new Vector2(1920f, 1080f);
-                caseRect.localScale = Vector3.one;
-                caseRect.localRotation = Quaternion.identity;
-            }
-
-            _openBridgeBinder = runtimeCase.AddComponent<OpenBridgeConningBinder>();
-            _openBridgeBinder.Initialize(_runner);
-            importedRoot.SetActive(false);
-
-            Debug.Log("[BridgeConningDisplay] Using FCU-imported OpenBridge conning case with live simulation bindings.");
-            return true;
+            Debug.LogWarning("[BridgeConningDisplay] OpenBridge_FCU exists, but cases_conning_5.0 was not found. Using fallback UI.");
+            return null;
         }
 
         private static GameObject FindSceneObject(string objectName)

@@ -22,32 +22,33 @@ namespace NavigationSim.UnityLayer.UI
         private Transform _caseRoot;
         private Transform _conningCompass;
 
-        private TMP_Text _hdg;
-        private TMP_Text _cog;
-        private TMP_Text _rot;
-        private TMP_Text _wind;
-        private TMP_Text _current;
-        private TMP_Text _depth;
-        private TMP_Text _pitch;
-        private TMP_Text _roll;
-        private TMP_Text _heave;
-        private TMP_Text _windSpeed;
-        private TMP_Text _windDirection;
-        private TMP_Text _northPosition;
-        private TMP_Text _eastPosition;
-        private TMP_Text _clock;
-        private TMP_Text _date;
-        private TMP_Text _steeringMode;
-        private TMP_Text _legCourse;
+        private Readout _hdg;
+        private Readout _cog;
+        private Readout _rot;
+        private Readout _wind;
+        private Readout _current;
+        private Readout _depth;
+        private Readout _pitch;
+        private Readout _roll;
+        private Readout _heave;
+        private Readout _windSpeed;
+        private Readout _windDirection;
+        private Readout _northPosition;
+        private Readout _eastPosition;
+        private Readout _clock;
+        private Readout _date;
+        private Readout _steeringMode;
+        private Readout _legCourse;
 
-        private TMP_Text _engineLoad;
-        private TMP_Text _engineRpm;
-        private TMP_Text _thrusterOrder;
-        private TMP_Text _thrusterActual;
-        private TMP_Text _rudderOrder;
-        private TMP_Text _rudderActual;
+        private Readout _engineLoad;
+        private Readout _engineRpm;
+        private Readout _thrusterOrder;
+        private Readout _thrusterActual;
+        private Readout _rudderOrder;
+        private Readout _rudderActual;
 
-        private readonly List<TMP_Text> _speedVectorValues = new();
+        private readonly List<Readout> _speedVectorValues = new();
+        private int _shownSecond = -1;
 
         private Transform _headingGraphic;
         private Transform _cogGraphic;
@@ -55,16 +56,79 @@ namespace NavigationSim.UnityLayer.UI
         private Transform _currentGraphic;
         private Transform _setpointGraphic;
 
-        public void Initialize(NavigationSimRunner runner)
+        /// <param name="prebaked">
+        /// The hierarchy already went through <see cref="RepairImportArtifacts"/>
+        /// and <see cref="StripImportComponents"/> at bake time, so opening the
+        /// panel only has to bind and read.
+        /// </param>
+        public void Initialize(NavigationSimRunner runner, bool prebaked = false)
         {
             _runner = runner;
             _caseRoot = transform;
             _conningCompass = FindDescendant(_caseRoot, "Conning Compass");
 
-            RepairImportArtifacts(_caseRoot);
+            if (!prebaked)
+            {
+                RepairImportArtifacts(_caseRoot);
+                StripImportComponents(_caseRoot);
+            }
+
+            ApplyGeneratedSprites(_caseRoot);
             ConfigureRelevantEquipment();
             CacheBindings();
             Refresh();
+        }
+
+        /// <summary>
+        /// One instrument reading. TMP rebuilds its mesh and dirties the whole
+        /// canvas on every assignment, so a reading is only written when it moves
+        /// at the precision it is shown with, and the string for it is only built
+        /// then too.
+        /// </summary>
+        private sealed class Readout
+        {
+            private readonly TMP_Text _text;
+            private double _shownValue;
+            private string _shownText;
+            private bool _hasValue;
+
+            private Readout(TMP_Text text)
+            {
+                _text = text;
+            }
+
+            public static Readout For(TMP_Text text)
+            {
+                return text != null ? new Readout(text) : null;
+            }
+
+            /// <param name="decimals">Decimals the format shows: the reading is
+            /// only rewritten when it changes by at least one of them.</param>
+            /// <param name="format">Composite format, e.g. "N {0:+0;-0;0} m".</param>
+            public void Set(double value, int decimals, string format)
+            {
+                double rounded = Math.Round(value, decimals);
+                if (_hasValue && rounded.Equals(_shownValue))
+                {
+                    return;
+                }
+
+                _hasValue = true;
+                _shownValue = rounded;
+                _shownText = string.Format(CultureInfo.InvariantCulture, format, value);
+                _text.text = _shownText;
+            }
+
+            public void Set(string value)
+            {
+                if (string.Equals(_shownText, value, StringComparison.Ordinal))
+                {
+                    return;
+                }
+
+                _shownText = value;
+                _text.text = value;
+            }
         }
 
         private static readonly Color AccentBlue = new Color32(0x00, 0x70, 0xD6, 0xFF);
@@ -168,6 +232,45 @@ namespace NavigationSim.UnityLayer.UI
 
         private static Sprite _dotSprite;
 
+        /// <summary>The panel baked for runtime, under a Resources folder.</summary>
+        public const string RuntimePrefabResource = RenderFolder + "conning-panel";
+
+        private static readonly Vector2 CaseSize = new Vector2(1920f, 1080f);
+
+        /// <summary>
+        /// The world-space canvas the case is shown on, built the same way for the
+        /// runtime panel and for the bake so the repair sees the rect it will run
+        /// against. It carries no GraphicRaycaster: the case is a readout, and the
+        /// laser pointer works off SimUiButton colliders, not graphic raycasts.
+        /// </summary>
+        public static GameObject CreateWorldCanvas(string name, Transform parent)
+        {
+            var root = new GameObject(name, typeof(RectTransform), typeof(Canvas));
+            root.transform.SetParent(parent, false);
+            root.GetComponent<Canvas>().renderMode = RenderMode.WorldSpace;
+
+            var rect = root.GetComponent<RectTransform>();
+            rect.sizeDelta = CaseSize;
+            rect.localScale = Vector3.one * 0.001f;
+            return root;
+        }
+
+        public static void FitToCanvas(RectTransform caseRect)
+        {
+            if (caseRect == null)
+            {
+                return;
+            }
+
+            caseRect.anchorMin = new Vector2(0.5f, 0.5f);
+            caseRect.anchorMax = new Vector2(0.5f, 0.5f);
+            caseRect.pivot = new Vector2(0.5f, 0.5f);
+            caseRect.anchoredPosition = Vector2.zero;
+            caseRect.sizeDelta = CaseSize;
+            caseRect.localScale = Vector3.one;
+            caseRect.localRotation = Quaternion.identity;
+        }
+
         /// <summary>
         /// Fixes FCU import artifacts on a conning hierarchy (scene workspace or runtime clone).
         /// </summary>
@@ -183,6 +286,7 @@ namespace NavigationSim.UnityLayer.UI
             fixedCount += OverrideDesignQuirks(root);
             fixedCount += RepairConningCompass(root);
             fixedCount += DisableBrokenOutlineEffects(root);
+            ApplyGeneratedSprites(root);
             return fixedCount;
         }
 
@@ -195,25 +299,31 @@ namespace NavigationSim.UnityLayer.UI
         /// </summary>
         private static int OverrideDesignQuirks(Transform root)
         {
-            if (!(FindDescendant(root, CaseRootName) is RectTransform panel))
+            RectTransform panel = ResolveCaseRoot(root);
+            if (panel == null)
             {
                 return 0;
             }
 
             int changed = 0;
-            float missing = panel.rect.width - DesignedTopbarWidth;
 
             if (FindByPath(panel, "Topbar/Topbar") is RectTransform bar)
             {
-                bar.sizeDelta = new Vector2(bar.rect.width + missing, bar.rect.height);
-                bar.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
-                changed++;
-
-                // The modules sit against the bar's right edge, so they travel with it.
-                if (FindByPath(bar, "Topbar modules") is RectTransform modules)
+                // Measured against the case rather than added to what the bar has,
+                // so running the repair twice cannot stretch it twice.
+                float missing = panel.rect.width - bar.rect.width;
+                if (Mathf.Abs(missing) > 0.5f)
                 {
-                    modules.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
+                    bar.sizeDelta = new Vector2(bar.rect.width + missing, bar.rect.height);
+                    bar.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
                     changed++;
+
+                    // The modules sit against the bar's right edge, so they travel with it.
+                    if (FindByPath(bar, "Topbar modules") is RectTransform modules)
+                    {
+                        modules.localPosition += new Vector3(missing * 0.5f, 0f, 0f);
+                        changed++;
+                    }
                 }
             }
 
@@ -235,7 +345,7 @@ namespace NavigationSim.UnityLayer.UI
         private const string LeadingZeroes = "value-zeros";
         private const string LeadingDigits = "value-digits";
         private const string LabelUnitGroup = "container-label-unit";
-        private const float DesignedTopbarWidth = 1220f;
+        private const string SyncHelperType = "DA_Assets.UCC.SyncHelper";
 
         private readonly struct DesignRect
         {
@@ -259,7 +369,8 @@ namespace NavigationSim.UnityLayer.UI
         /// </summary>
         private static int ConformToDesign(Transform root)
         {
-            if (!(FindDescendant(root, CaseRootName) is RectTransform panel))
+            RectTransform panel = ResolveCaseRoot(root);
+            if (panel == null)
             {
                 return 0;
             }
@@ -390,20 +501,109 @@ namespace NavigationSim.UnityLayer.UI
 
             fixedCount += PlaceDiagonalLabels(compass);
             fixedCount += RestoreBooleanShapes(compass);
+            return fixedCount;
+        }
 
-            Image centre = FindImage(compass, "Compass/COG/Center");
-            if (centre != null)
+        /// <summary>
+        /// The dot under the course line is drawn in code, so it cannot be saved
+        /// into a prefab and has to be re-applied every time the panel is built.
+        /// </summary>
+        private static void ApplyGeneratedSprites(Transform root)
+        {
+            Transform compass = FindDescendant(root, "Conning compass L");
+            Image centre = compass != null ? FindImage(compass, "Compass/COG/Center") : null;
+            if (centre == null)
             {
-                if (centre.sprite == null)
-                {
-                    centre.sprite = GetDotSprite();
-                }
-
-                centre.color = AccentBlue;
-                fixedCount++;
+                return;
             }
 
-            return fixedCount;
+            if (centre.sprite == null)
+            {
+                centre.sprite = GetDotSprite();
+            }
+
+            centre.color = AccentBlue;
+        }
+
+        /// <summary>
+        /// FCU hangs its import bookkeeping off every node and rebuilds Figma
+        /// auto-layout as Unity layout components that <see cref="Pin"/> then
+        /// switches off. None of it is read once the panel is placed, and all of
+        /// it is cloned, serialised and walked at runtime, so it is dropped.
+        /// Layout components are only removed where the repair already disabled
+        /// them, and buttons go because the panel is a readout, not a control.
+        /// </summary>
+        public static int StripImportComponents(Transform root)
+        {
+            if (root == null)
+            {
+                return 0;
+            }
+
+            var doomed = new List<Component>();
+            foreach (Transform node in root.GetComponentsInChildren<Transform>(true))
+            {
+                foreach (Component component in node.GetComponents<Component>())
+                {
+                    if (IsImportOnly(component))
+                    {
+                        doomed.Add(component);
+                    }
+                }
+            }
+
+            foreach (Component component in doomed)
+            {
+                if (Application.isPlaying)
+                {
+                    Destroy(component);
+                }
+                else
+                {
+                    DestroyImmediate(component);
+                }
+            }
+
+            return doomed.Count;
+        }
+
+        private static bool IsImportOnly(Component component)
+        {
+            // The converter's own assembly is editor-only, so its bookkeeping
+            // component is matched by name rather than referenced as a type.
+            if (component.GetType().FullName == SyncHelperType)
+            {
+                return true;
+            }
+
+            switch (component)
+            {
+                case Button _:
+                    return true;
+                case DA_Assets.DAO.DAOutlineEffect outline:
+                    return !outline.enabled;
+                case LayoutGroup group:
+                    return !group.enabled;
+                case ContentSizeFitter fitter:
+                    return !fitter.enabled;
+                case AspectRatioFitter aspect:
+                    return !aspect.enabled;
+                case LayoutElement element:
+                    return !element.enabled;
+                default:
+                    return false;
+            }
+        }
+
+        private static RectTransform ResolveCaseRoot(Transform root)
+        {
+            // The runtime clone carries a suffix on the case's own name.
+            if (root is RectTransform self && self.name.StartsWith(CaseRootName, StringComparison.Ordinal))
+            {
+                return self;
+            }
+
+            return FindDescendant(root, CaseRootName) as RectTransform;
         }
 
         private static int RestoreBooleanShapes(RectTransform compass)
@@ -571,50 +771,48 @@ namespace NavigationSim.UnityLayer.UI
             double windKn = env.WindSpeedMs * MsToKnots;
             double rpm = state.ShaftRps * 60.0;
 
-            Set(_hdg, $"{state.HeadingDeg:000}");
-            Set(_cog, $"{state.CogDeg:000}");
-            Set(_rot, $"{state.RotDegPerMin:+0.0;-0.0;0.0}");
-            Set(_wind, $"{windKn:0.0}");
-            Set(_current, $"{currentKn:0.0}");
-            Set(_depth, $"{env.WaterDepthM:0.0}");
+            _hdg?.Set(state.HeadingDeg, 0, "{0:000}");
+            _cog?.Set(state.CogDeg, 0, "{0:000}");
+            _rot?.Set(state.RotDegPerMin, 1, "{0:+0.0;-0.0;0.0}");
+            _wind?.Set(windKn, 1, "{0:0.0}");
+            _current?.Set(currentKn, 1, "{0:0.0}");
+            _depth?.Set(env.WaterDepthM, 1, "{0:0.0}");
 
-            Set(_pitch, $"{state.PitchDeg:+0.0;-0.0;0.0}");
-            Set(_roll, $"{state.RollDeg:+0.0;-0.0;0.0}");
-            Set(_heave, $"{state.HeaveM:+0.00;-0.00;0.00}");
-            Set(_windSpeed, $"{windKn:0.0}");
-            Set(_windDirection, $"{env.WindFromDeg:000}");
+            _pitch?.Set(state.PitchDeg, 1, "{0:+0.0;-0.0;0.0}");
+            _roll?.Set(state.RollDeg, 1, "{0:+0.0;-0.0;0.0}");
+            _heave?.Set(state.HeaveM, 2, "{0:+0.00;-0.00;0.00}");
+            _windSpeed?.Set(windKn, 1, "{0:0.0}");
+            _windDirection?.Set(env.WindFromDeg, 0, "{0:000}");
 
-            Set(_northPosition, $"N {state.North:+0;-0;0} m");
-            Set(_eastPosition, $"E {state.East:+0;-0;0} m");
+            _northPosition?.Set(state.North, 0, "N {0:+0;-0;0} m");
+            _eastPosition?.Set(state.East, 0, "E {0:+0;-0;0} m");
 
-            TimeSpan simTime = TimeSpan.FromSeconds(Math.Max(0.0, state.TimeS));
-            Set(_clock, $"{(int)simTime.TotalHours:00}:{simTime.Minutes:00}:{simTime.Seconds:00}");
-            Set(_date, "SIM TIME");
-            Set(_steeringMode, SteeringModeLabel(_runner.Sim.Command.SteeringMode));
-            Set(_legCourse, $"{_runner.Sim.Command.HeadingSetpointDeg:000}");
+            SetClock(Math.Max(0.0, state.TimeS));
+            _date?.Set("SIM TIME");
+            _steeringMode?.Set(SteeringModeLabel(_runner.Sim.Command.SteeringMode));
+            _legCourse?.Set(_runner.Sim.Command.HeadingSetpointDeg, 0, "{0:000}");
 
-            Set(_engineLoad, $"{state.EngineLoad * 100.0:0}");
-            Set(_engineRpm, $"{rpm:0}");
+            _engineLoad?.Set(state.EngineLoad * 100.0, 0, "{0:0}");
+            _engineRpm?.Set(rpm, 0, "{0:0}");
 
-            float thruster = bridge != null ? bridge.BowThruster : (float)_runner.Sim.Command.BowThruster;
-            Set(_thrusterOrder, $"{thruster * 100f:+0;-0;0}");
-            Set(_thrusterActual, $"{thruster * 100f:+0;-0;0}");
+            double thruster = (bridge != null ? bridge.BowThruster : _runner.Sim.Command.BowThruster) * 100.0;
+            _thrusterOrder?.Set(thruster, 0, "{0:+0;-0;0}");
+            _thrusterActual?.Set(thruster, 0, "{0:+0;-0;0}");
 
-            double rudderOrder = _runner.Sim.ResolvedRudderCommandDeg;
-            Set(_rudderOrder, $"{rudderOrder:+0.0;-0.0;0.0}");
-            Set(_rudderActual, $"{state.RudderAngleDeg:+0.0;-0.0;0.0}");
+            _rudderOrder?.Set(_runner.Sim.ResolvedRudderCommandDeg, 1, "{0:+0.0;-0.0;0.0}");
+            _rudderActual?.Set(state.RudderAngleDeg, 1, "{0:+0.0;-0.0;0.0}");
 
             if (_speedVectorValues.Count > 0)
             {
-                Set(_speedVectorValues[0], $"{stwKn:0.0}");
+                _speedVectorValues[0]?.Set(stwKn, 1, "{0:0.0}");
             }
             if (_speedVectorValues.Count > 1)
             {
-                Set(_speedVectorValues[1], $"{sogKn:0.0}");
+                _speedVectorValues[1]?.Set(sogKn, 1, "{0:0.0}");
             }
             if (_speedVectorValues.Count > 2)
             {
-                Set(_speedVectorValues[2], $"{Math.Abs(sogKn - stwKn):0.0}");
+                _speedVectorValues[2]?.Set(Math.Abs(sogKn - stwKn), 1, "{0:0.0}");
             }
 
             RotateCompassGraphic(_headingGraphic, state.HeadingDeg);
@@ -626,37 +824,37 @@ namespace NavigationSim.UnityLayer.UI
 
         private void CacheBindings()
         {
-            _hdg = FindInstrumentOutput(_conningCompass, "HDG");
-            _cog = FindInstrumentOutput(_conningCompass, "COG");
-            _rot = FindInstrumentOutput(_conningCompass, "ROT");
-            _wind = FindInstrumentOutput(_conningCompass, "Wind");
-            _current = FindInstrumentOutput(_conningCompass, "Current");
+            _hdg = Readout.For(FindInstrumentOutput(_conningCompass, "HDG"));
+            _cog = Readout.For(FindInstrumentOutput(_conningCompass, "COG"));
+            _rot = Readout.For(FindInstrumentOutput(_conningCompass, "ROT"));
+            _wind = Readout.For(FindInstrumentOutput(_conningCompass, "Wind"));
+            _current = Readout.For(FindInstrumentOutput(_conningCompass, "Current"));
 
             Transform motion = FindDescendant(_caseRoot, "Frame 333");
-            _pitch = FindInstrumentOutput(motion, "Pitch");
-            _roll = FindInstrumentOutput(motion, "Roll");
-            _heave = FindInstrumentOutput(motion, "Heave");
+            _pitch = Readout.For(FindInstrumentOutput(motion, "Pitch"));
+            _roll = Readout.For(FindInstrumentOutput(motion, "Roll"));
+            _heave = Readout.For(FindInstrumentOutput(motion, "Heave"));
 
             Transform windCard = FindDescendant(_caseRoot, "Group 27");
-            _windSpeed = FindInstrumentOutput(windCard, "Speed");
-            _windDirection = FindInstrumentOutput(windCard, "Direction");
+            _windSpeed = Readout.For(FindInstrumentOutput(windCard, "Speed"));
+            _windDirection = Readout.For(FindInstrumentOutput(windCard, "Direction"));
 
             Transform depthValue = FindDescendant(_caseRoot, "Vertical-S");
-            _depth = FindTextNamed(depthValue, "000");
+            _depth = Readout.For(FindTextNamed(depthValue, "000"));
 
             TMP_Text[] texts = _caseRoot.GetComponentsInChildren<TMP_Text>(true);
-            _northPosition = FindTextByInitialValue(texts, "41°03.441");
-            _eastPosition = FindTextByInitialValue(texts, "071°16.676");
-            _clock = FindTextByInitialValue(texts, "14:34:32");
-            _date = FindTextByInitialValue(texts, "12-08-2021");
+            _northPosition = Readout.For(FindTextByInitialValue(texts, "41°03.441"));
+            _eastPosition = Readout.For(FindTextByInitialValue(texts, "071°16.676"));
+            _clock = Readout.For(FindTextByInitialValue(texts, "14:34:32"));
+            _date = Readout.For(FindTextByInitialValue(texts, "12-08-2021"));
 
             Transform steering = FindDescendant(_caseRoot, "Frame 303");
-            _steeringMode = FindTextByInitialValue(
+            _steeringMode = Readout.For(FindTextByInitialValue(
                 steering != null ? steering.GetComponentsInChildren<TMP_Text>(true) : Array.Empty<TMP_Text>(),
-                "Track");
+                "Track"));
 
             Transform currentLeg = FindDescendant(_caseRoot, "Frame 300");
-            _legCourse = FindInstrumentOutput(currentLeg, "Course");
+            _legCourse = Readout.For(FindInstrumentOutput(currentLeg, "Course"));
 
             Transform compass = FindDescendant(_caseRoot, "Conning compass L");
             _headingGraphic = FindDirectChild(FindDirectChild(compass, "Compass"), "Heading");
@@ -672,7 +870,7 @@ namespace NavigationSim.UnityLayer.UI
                 {
                     if (text.name == "2.3")
                     {
-                        _speedVectorValues.Add(text);
+                        _speedVectorValues.Add(Readout.For(text));
                     }
                 }
             }
@@ -695,14 +893,14 @@ namespace NavigationSim.UnityLayer.UI
                 {
                     loadLabel.text = "Load";
                 }
-                _engineLoad = FindInstrumentOutput(engine, "Load");
+                _engineLoad = Readout.For(FindInstrumentOutput(engine, "Load"));
 
                 TMP_Text rpmLabel = FindTextByExactValue(engine, "Power");
                 if (rpmLabel != null)
                 {
                     rpmLabel.text = "RPM";
                 }
-                _engineRpm = FindInstrumentOutput(engine, "RPM");
+                _engineRpm = Readout.For(FindInstrumentOutput(engine, "RPM"));
             }
             DisableFromIndex(engines, 1);
 
@@ -714,8 +912,8 @@ namespace NavigationSim.UnityLayer.UI
             {
                 Transform thruster = thrusters[0];
                 SetSectionTitle(thruster, "BOW THRUSTER");
-                _thrusterOrder = FindInstrumentInput(thruster);
-                _thrusterActual = FindInstrumentOutput(thruster, "Power");
+                _thrusterOrder = Readout.For(FindInstrumentInput(thruster));
+                _thrusterActual = Readout.For(FindInstrumentOutput(thruster, "Power"));
             }
 
             List<Transform> rudders = FindAllDescendants(_caseRoot, "Rudder labeled");
@@ -723,8 +921,8 @@ namespace NavigationSim.UnityLayer.UI
             {
                 Transform rudder = rudders[0];
                 SetSectionTitle(rudder, "RUDDER");
-                _rudderOrder = FindInstrumentInput(rudder);
-                _rudderActual = FindInstrumentOutput(rudder, "Angle");
+                _rudderOrder = Readout.For(FindInstrumentInput(rudder));
+                _rudderActual = Readout.For(FindInstrumentOutput(rudder, "Angle"));
             }
             DisableFromIndex(rudders, 1);
         }
@@ -984,12 +1182,16 @@ namespace NavigationSim.UnityLayer.UI
             };
         }
 
-        private static void Set(TMP_Text text, string value)
+        private void SetClock(double seconds)
         {
-            if (text != null)
+            var whole = (int)seconds;
+            if (_clock == null || whole == _shownSecond)
             {
-                text.text = value;
+                return;
             }
+
+            _shownSecond = whole;
+            _clock.Set($"{whole / 3600:00}:{whole / 60 % 60:00}:{whole % 60:00}");
         }
     }
 }
