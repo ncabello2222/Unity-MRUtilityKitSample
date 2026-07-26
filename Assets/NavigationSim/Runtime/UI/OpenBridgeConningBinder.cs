@@ -783,8 +783,11 @@ namespace NavigationSim.UnityLayer.UI
             _pitch?.Set(state.PitchDeg, 1, "{0:+0.0;-0.0;0.0}");
             _roll?.Set(state.RollDeg, 1, "{0:+0.0;-0.0;0.0}");
             _heave?.Set(state.HeaveM, 2, "{0:+0.00;-0.00;0.00}");
-            _windSpeed?.Set(windKn, 1, "{0:0.0}");
-            _windDirection?.Set(env.WindFromDeg, 0, "{0:000}");
+            // The wind card draws a fixed bow-up ship at its centre, so it is the
+            // anemometer view: apparent wind, bearing relative to the bow. True wind
+            // stays on the north-up compass beside it.
+            _windSpeed?.Set(state.ApparentWindSpeedMs * MsToKnots, 1, "{0:0.0}");
+            _windDirection?.Set(state.ApparentWindFromRelDeg, 0, "{0:000}");
 
             _northPosition?.Set(state.North, 0, "N {0:+0;-0;0} m");
             _eastPosition?.Set(state.East, 0, "E {0:+0;-0;0} m");
@@ -797,9 +800,11 @@ namespace NavigationSim.UnityLayer.UI
             _engineLoad?.Set(state.EngineLoad * 100.0, 0, "{0:0}");
             _engineRpm?.Set(rpm, 0, "{0:0}");
 
+            // Order is what the lever asks for; actual is what the tunnel still
+            // delivers, which fades out as headway builds.
             double thruster = (bridge != null ? bridge.BowThruster : _runner.Sim.Command.BowThruster) * 100.0;
             _thrusterOrder?.Set(thruster, 0, "{0:+0;-0;0}");
-            _thrusterActual?.Set(thruster, 0, "{0:+0;-0;0}");
+            _thrusterActual?.Set(state.BowThrusterEffective * 100.0, 0, "{0:+0;-0;0}");
 
             _rudderOrder?.Set(_runner.Sim.ResolvedRudderCommandDeg, 1, "{0:+0.0;-0.0;0.0}");
             _rudderActual?.Set(state.RudderAngleDeg, 1, "{0:+0.0;-0.0;0.0}");
@@ -833,9 +838,18 @@ namespace NavigationSim.UnityLayer.UI
             _roll = Readout.For(FindInstrumentOutput(motion, "Roll"));
             _heave = Readout.For(FindInstrumentOutput(motion, "Heave"));
 
+            // This card draws a fixed bow-up ship at its centre, so its reading is the
+            // anemometer's: apparent wind, bearing off the bow. Say so on the label
+            // before binding by that name, the order ConfigureRelevantEquipment uses.
             Transform windCard = FindDescendant(_caseRoot, "Group 27");
+            TMP_Text windDirLabel = FindTextByExactValue(windCard, "Direction");
+            if (windDirLabel != null)
+            {
+                windDirLabel.text = "Rel";
+            }
+
             _windSpeed = Readout.For(FindInstrumentOutput(windCard, "Speed"));
-            _windDirection = Readout.For(FindInstrumentOutput(windCard, "Direction"));
+            _windDirection = Readout.For(FindInstrumentOutput(windCard, "Rel"));
 
             Transform depthValue = FindDescendant(_caseRoot, "Vertical-S");
             _depth = Readout.For(FindTextNamed(depthValue, "000"));

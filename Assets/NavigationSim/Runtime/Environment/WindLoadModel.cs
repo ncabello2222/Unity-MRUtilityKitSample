@@ -63,6 +63,27 @@ namespace NavigationSim.Core
         };
 
         /// <summary>
+        /// Apparent (relative) wind at the ship — what an anemometer reads — per
+        /// Fossen 2021 eq. 10.2. <paramref name="fromRelRad"/> is the bearing it blows
+        /// FROM relative to the bow, in (-pi, pi]: 0 = ahead, +pi/2 = starboard beam.
+        /// Left unwrapped because the yaw-moment fit below reads its magnitude.
+        /// </summary>
+        public static void ApparentWind(EnvironmentState env, double psiRad,
+            double u, double v, out double speedMs, out double fromRelRad)
+        {
+            // Wind FROM direction → going-to direction.
+            double betaGoingTo = (env.WindFromDeg + 180.0) * Math.PI / 180.0;
+
+            double uw = env.WindSpeedMs * Math.Cos(betaGoingTo - psiRad);
+            double vw = env.WindSpeedMs * Math.Sin(betaGoingTo - psiRad);
+
+            double urw = u - uw;
+            double vrw = v - vw;
+            speedMs = Math.Sqrt(urw * urw + vrw * vrw);
+            fromRelRad = speedMs < 1e-9 ? 0.0 : Math.Atan2(vrw, urw);
+        }
+
+        /// <summary>
         /// Wind loads for the current motion state. Uses the relative (apparent)
         /// wind computed from the ship velocity, per Fossen 2021 eq. 10.2.
         /// </summary>
@@ -75,21 +96,13 @@ namespace NavigationSim.Core
                 return outF;
             }
 
-            // Wind FROM direction → going-to direction.
-            double betaGoingTo = (env.WindFromDeg + 180.0) * Math.PI / 180.0;
-
-            double uw = env.WindSpeedMs * Math.Cos(betaGoingTo - psiRad);
-            double vw = env.WindSpeedMs * Math.Sin(betaGoingTo - psiRad);
-
-            double urw = u - uw;
-            double vrw = v - vw;
-            double Vr = Math.Sqrt(urw * urw + vrw * vrw);
+            ApparentWind(env, psiRad, u, v, out double Vr, out double fromRelRad);
             if (Vr < 0.05)
             {
                 return outF;
             }
 
-            double gammaR = -Math.Atan2(vrw, urw); // 0 = head wind
+            double gammaR = -fromRelRad; // 0 = head wind
 
             int row = (int)w.VesselType;
             double cdt = Bdata[row, 0];

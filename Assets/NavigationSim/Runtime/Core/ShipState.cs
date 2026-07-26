@@ -31,6 +31,16 @@ namespace NavigationSim.Core
         public double WaterDriftNorth;
         public double WaterDriftEast;
 
+        // Apparent (relative) wind — the quantity an anemometer reads, as opposed to
+        // the true wind the instructor sets. Direction is the bearing it blows FROM
+        // relative to the bow: 0 = ahead, 90 = starboard beam, 180 = astern.
+        public double ApparentWindSpeedMs;
+        public double ApparentWindFromRelDeg;
+
+        // Fraction of bow-thruster command actually delivered: tunnel thrusters lose
+        // authority with headway, so the order and the effect are not the same number.
+        public double BowThrusterEffective;
+
         // Propulsion diagnostics.
         public double AdvanceRatioJ;
         public double PropThrustN;
@@ -51,6 +61,9 @@ namespace NavigationSim.Core
         public double SogMs => Math.Sqrt(U * U + V * V);
         public double StwMs => Math.Sqrt(Ur * Ur + Vr * Vr);
         public double RotDegPerMin => R * 180.0 / Math.PI * 60.0;
+
+        /// <summary>Apparent wind as the compass bearing it blows from.</summary>
+        public double ApparentWindFromDeg => Normalize360(HeadingDeg + ApparentWindFromRelDeg);
 
         public double CogDeg
         {
@@ -101,6 +114,8 @@ namespace NavigationSim.Core
             ShaftRps = 0.0;
             Ur = Vr = 0.0;
             WaterDriftNorth = WaterDriftEast = 0.0;
+            ApparentWindSpeedMs = ApparentWindFromRelDeg = 0.0;
+            BowThrusterEffective = 0.0;
             AdvanceRatioJ = PropThrustN = PropTorqueNm = ShaftPowerW = EngineLoad = 0.0;
             FuelFlowKgPerH = FuelUsedKg = 0.0;
             HeaveM = RollDeg = PitchDeg = 0.0;

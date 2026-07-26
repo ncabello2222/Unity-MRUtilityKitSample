@@ -100,6 +100,7 @@ namespace NavigationSim.Core
             double urNow = State.U - uc0;
             double thrusterFade = 1.0 - Math.Min(1.0,
                 Math.Abs(urNow) / Math.Max(0.5, Config.BowThruster.FadeOutSpeedMs));
+            State.BowThrusterEffective = cmd.BowThruster * thrusterFade;
             double yBow = cmd.BowThruster * Config.BowThruster.MaxThrustN * thrusterFade;
             _externalForces.Y += yBow;
             _externalForces.N += yBow * Config.BowThruster.LongitudinalPositionM;
@@ -141,6 +142,13 @@ namespace NavigationSim.Core
             double setRad = env.CurrentSetToDeg * Math.PI / 180.0;
             State.WaterDriftNorth += env.CurrentSpeedMs * Math.Cos(setRad) * dt;
             State.WaterDriftEast += env.CurrentSpeedMs * Math.Sin(setRad) * dt;
+
+            // Anemometer channel: same relative wind the load model integrates, kept
+            // as a reading so the conning panel need not re-derive it.
+            WindLoadModel.ApparentWind(env, State.PsiRad, State.U, State.V,
+                out double appWindMs, out double appFromRelRad);
+            State.ApparentWindSpeedMs = appWindMs;
+            State.ApparentWindFromRelDeg = ShipState.Normalize360(appFromRelRad * 180.0 / Math.PI);
 
             PropellerModel.Compute(Config.Propeller, State.Ur, rps, env.WaterDensity,
                 out double j, out double thrustN, out double torqueNm, out double powerW);
