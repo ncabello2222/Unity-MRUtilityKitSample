@@ -47,7 +47,9 @@ namespace NavigationSim.UnityLayer.UI
         private Readout _rudderOrder;
         private Readout _rudderActual;
 
-        private readonly List<Readout> _speedVectorValues = new();
+        private Readout _stwSpeed;
+        private Readout _sogSpeed;
+        private Readout _driftSpeed;
         private int _shownSecond = -1;
 
         private Transform _headingGraphic;
@@ -802,23 +804,19 @@ namespace NavigationSim.UnityLayer.UI
             _rudderOrder?.Set(_runner.Sim.ResolvedRudderCommandDeg, 1, "{0:+0.0;-0.0;0.0}");
             _rudderActual?.Set(state.RudderAngleDeg, 1, "{0:+0.0;-0.0;0.0}");
 
-            if (_speedVectorValues.Count > 0)
-            {
-                _speedVectorValues[0]?.Set(stwKn, 1, "{0:0.0}");
-            }
-            if (_speedVectorValues.Count > 1)
-            {
-                _speedVectorValues[1]?.Set(sogKn, 1, "{0:0.0}");
-            }
-            if (_speedVectorValues.Count > 2)
-            {
-                _speedVectorValues[2]?.Set(Math.Abs(sogKn - stwKn), 1, "{0:0.0}");
-            }
+            _stwSpeed?.Set(stwKn, 1, "{0:0.0}");
+            _sogSpeed?.Set(sogKn, 1, "{0:0.0}");
+            // Drift is |V_ground - V_water|, which for a uniform current is the current
+            // itself — not |SOG - STW|, which collapses to ~0 whenever the set is abeam.
+            _driftSpeed?.Set(currentKn, 1, "{0:0.0}");
 
             RotateCompassGraphic(_headingGraphic, state.HeadingDeg);
             RotateCompassGraphic(_cogGraphic, state.CogDeg);
             RotateCompassGraphic(_windGraphic, env.WindFromDeg);
-            RotateCompassGraphic(_currentGraphic, env.CurrentSetToDeg);
+            // Both compass arrows are the same glyph: they sit on the ring at the
+            // bearing the vector comes FROM and point inward. Wind is already a
+            // from-bearing; the current is stored as its set, so it needs reciprocating.
+            RotateCompassGraphic(_currentGraphic, ShipState.Normalize360(env.CurrentSetToDeg + 180.0));
             RotateCompassGraphic(_setpointGraphic, _runner.Sim.Command.HeadingSetpointDeg);
         }
 
@@ -863,17 +861,35 @@ namespace NavigationSim.UnityLayer.UI
             _currentGraphic = FindDirectChild(FindDirectChild(compass, "Compass"), "Current");
             _setpointGraphic = FindDirectChild(FindDirectChild(compass, "Compass"), "Setpoint");
 
+            // Three identical "SOG-STW L" groups stacked top to bottom, and the design
+            // labels all three STW. Bound by path so each reading lands under the label
+            // it is renamed to instead of following hierarchy order.
             Transform vectors = FindDescendant(_caseRoot, "Frame 351");
-            if (vectors != null)
+            _stwSpeed = BindSpeedVector(vectors, "Frame 686/Frame 521", "Frame 686/Frame 522", "STW");
+            _sogSpeed = BindSpeedVector(vectors, "Frame 684", "Frame 685", "SOG");
+            _driftSpeed = BindSpeedVector(vectors, "Frame 682", "Frame 683", "DRIFT");
+        }
+
+        /// <summary>
+        /// One row of the speed-vector card: the reading under valuePath, and the
+        /// design's placeholder label beside it renamed to what is actually shown.
+        /// The KN unit next to it is right for all three rows.
+        /// </summary>
+        private static Readout BindSpeedVector(Transform card, string valuePath,
+            string labelPath, string label)
+        {
+            if (card == null)
             {
-                foreach (TMP_Text text in vectors.GetComponentsInChildren<TMP_Text>(true))
-                {
-                    if (text.name == "2.3")
-                    {
-                        _speedVectorValues.Add(Readout.For(text));
-                    }
-                }
+                return null;
             }
+
+            TMP_Text labelText = FindTextNamed(FindByPath(card, labelPath), "STW");
+            if (labelText != null)
+            {
+                labelText.text = label;
+            }
+
+            return Readout.For(FindTextNamed(FindByPath(card, valuePath), "2.3"));
         }
 
         private void ConfigureRelevantEquipment()
