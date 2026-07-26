@@ -71,13 +71,13 @@ namespace NavigationSim.UnityLayer
         private double _headingDeg;
         private float _patchSize = 64f;
         private float _waterShiftY;
+        private float _oceanClock;
+        private double _lastSimTimeS;
         private float _driveWindSpeed = 8f;
         private float _driveFromDeg;
         private bool _renderHooked;
         private bool _jobsCompletedThisFrame;
         private float _simulationAccumulator;
-        private float _cachedWindYaw = float.NaN;
-        private bool _windPitchApplied;
         private bool _seakeepingSurfaceAssigned;
         private bool _lastUseSurfaceSampling;
 
@@ -343,8 +343,6 @@ namespace NavigationSim.UnityLayer
             _patchSize = Mathf.Max(1f, _profile.OceanSettings.PatchSize);
             // Prime so the first LateUpdate produces displacement/normal maps immediately.
             _simulationAccumulator = 1f / Mathf.Max(1f, simulationUpdateHz);
-            _cachedWindYaw = float.NaN;
-            _windPitchApplied = false;
 
             Debug.Log(
                 $"[NorthStarOceanAdapter] North Star iFFT ocean spawned under OceanRoot " +
@@ -404,6 +402,32 @@ namespace NavigationSim.UnityLayer
             {
                 return;
             }
+
+            // Wave phase advances on the core's clock, not the wall clock: at x10 the
+            // ship would otherwise cover ground ten times faster across a sea evolving
+            // at 1x, and WaveResponseModel would filter an encounter frequency the
+            // surface it samples never produced. Consuming the elapsed sim time keeps
+            // the two exact even when the runner clamps its sub-steps, and accumulating
+            // it (rather than scaling Time.time) means the factor can change mid-run
+            // without jumping the phase.
+            var runner = NavigationSimRunner.Instance;
+            if (runner != null && runner.Sim != null)
+            {
+                double simTime = runner.Sim.State.TimeS;
+                double advanced = simTime - _lastSimTimeS;
+                _lastSimTimeS = simTime;
+                // ResetShip() rewinds TimeS; the sea has no reason to rewind with it.
+                if (advanced > 0.0)
+                {
+                    _oceanClock += (float)advanced;
+                }
+            }
+            else
+            {
+                _oceanClock += Time.deltaTime;
+            }
+
+            _oceanSimulation.SimulationTime = _oceanClock;
 
             // Keep the headset at its native refresh (e.g. 72 Hz) while the iFFT
             // spectrum runs at a lower cadence and the last displacement/normal
@@ -466,18 +490,10 @@ namespace NavigationSim.UnityLayer
                 _profile.Version++;
             }
 
-            float yaw = Mathf.Repeat(drive.WindFromDeg, 360f);
-            if (float.IsNaN(_cachedWindYaw) || !Mathf.Approximately(_cachedWindYaw, yaw))
-            {
-                SetAutoProperty(_profile, "WindYaw", yaw);
-                _cachedWindYaw = yaw;
-            }
-
-            if (!_windPitchApplied)
-            {
-                SetAutoProperty(_profile, "WindPitch", 90f);
-                _windPitchApplied = true;
-            }
+            // The profile's WindYaw/WindPitch are only read by EnvironmentSystem, which
+            // this adapter replaces: direction reaches the spectrum through the vector
+            // BuildWindVector hands to UpdateSimulation, already turned into the room
+            // frame. Writing them here looked like it steered the sea and did nothing.
 
             float hs = Mathf.Clamp01((float)(env.WaveHeightM / 6.0));
             if (oceanMaterial.HasProperty("_Foam_Crest_Offset"))

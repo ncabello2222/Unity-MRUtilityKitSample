@@ -50,6 +50,15 @@ namespace Meta.Utilities.Environment
         /// </summary>
         public Vector2 FieldOffset { get; set; }
 
+        /// <summary>
+        /// Seconds to evaluate the dispersion at. The ship bridge sim runs on fast
+        /// time, and Time.time would leave the sea evolving at 1x while the ship runs
+        /// at Nx. Drive it with an accumulated clock rather than a scaled absolute one
+        /// so changing the factor mid-run does not jump the phase. Negative keeps the
+        /// stock Time.time behaviour.
+        /// </summary>
+        public float SimulationTime { get; set; } = -1f;
+
         private JobHandle m_jobHandle;
         private bool m_hasPendingJobs;
 
@@ -230,7 +239,8 @@ namespace Meta.Utilities.Environment
                 Mathf.Repeat(FieldOffset.x, patchSize),
                 Mathf.Repeat(FieldOffset.y, patchSize));
 
-            var dispersion = new OceanDispersionJob(m_dispersionTable, m_spectrum, m_heightBufferB, m_displacementBufferB, m_resolution, Time.time * Profile.OceanSettings.TimeScale, phasePerCell);
+            var clock = SimulationTime >= 0f ? SimulationTime : Time.time;
+            var dispersion = new OceanDispersionJob(m_dispersionTable, m_spectrum, m_heightBufferB, m_displacementBufferB, m_resolution, clock * Profile.OceanSettings.TimeScale, phasePerCell);
 
             m_jobHandle = dispersion.Schedule(length, BATCHCOUNT, m_jobHandle);
 
