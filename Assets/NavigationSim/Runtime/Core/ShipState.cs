@@ -25,6 +25,12 @@ namespace NavigationSim.Core
         public double Ur;
         public double Vr;
 
+        // Displacement of the water mass over ground since the last reset [m].
+        // The trajectory never reads it: the render layer needs it to keep the wave
+        // field glued to the water instead of to the seabed.
+        public double WaterDriftNorth;
+        public double WaterDriftEast;
+
         // Propulsion diagnostics.
         public double AdvanceRatioJ;
         public double PropThrustN;
@@ -94,6 +100,7 @@ namespace NavigationSim.Core
             RudderAngleDeg = 0.0;
             ShaftRps = 0.0;
             Ur = Vr = 0.0;
+            WaterDriftNorth = WaterDriftEast = 0.0;
             AdvanceRatioJ = PropThrustN = PropTorqueNm = ShaftPowerW = EngineLoad = 0.0;
             FuelFlowKgPerH = FuelUsedKg = 0.0;
             HeaveM = RollDeg = PitchDeg = 0.0;

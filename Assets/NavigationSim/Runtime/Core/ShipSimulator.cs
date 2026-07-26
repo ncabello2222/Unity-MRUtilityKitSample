@@ -135,6 +135,13 @@ namespace NavigationSim.Core
             State.Ur = State.U - uc;
             State.Vr = State.V - vc;
 
+            // The water mass itself travels with the current. Integrated here so the
+            // visual wave field can ride on it at the same (possibly fast-time) rate
+            // the trajectory advances.
+            double setRad = env.CurrentSetToDeg * Math.PI / 180.0;
+            State.WaterDriftNorth += env.CurrentSpeedMs * Math.Cos(setRad) * dt;
+            State.WaterDriftEast += env.CurrentSpeedMs * Math.Sin(setRad) * dt;
+
             PropellerModel.Compute(Config.Propeller, State.Ur, rps, env.WaterDensity,
                 out double j, out double thrustN, out double torqueNm, out double powerW);
             State.AdvanceRatioJ = j;

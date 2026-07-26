@@ -70,6 +70,7 @@ namespace NavigationSim.UnityLayer
         private double _north;
         private double _headingDeg;
         private float _patchSize = 64f;
+        private float _waterShiftY;
         private float _driveWindSpeed = 8f;
         private float _driveFromDeg;
         private bool _renderHooked;
@@ -205,29 +206,43 @@ namespace NavigationSim.UnityLayer
             _north = north;
             _headingDeg = headingDeg;
 
+            Vector3 shift = ComputeWaterShift(east, north, headingDeg);
+            _waterShiftY = shift.y;
+
             if (_oceanSimulation == null || !scrollWavesWithVirtualPosition)
             {
                 return;
             }
 
-            // Exact rigid translation: shift the FFT field by the same world-space
-            // offset the terrain received at the bridge (spectral phase e^(iK·D)).
-            // Heading is carried by BuildWindVector, whose deterministic per-cell
-            // phases morph the spectrum smoothly instead of re-randomizing it.
-            Vector3 shift;
-            if (_motion != null && _motion.HasInitialPose)
-            {
-                shift = _motion.ComputeWorldShiftAt(_pivotPosition);
-            }
-            else
-            {
-                var yaw = Quaternion.AngleAxis(-(float)headingDeg, Vector3.up);
-                shift = -(_shipForwardBasis * (yaw * new Vector3((float)east, 0f, (float)north)));
-            }
-
-            // T(u) = f(u + D): features move by -D, so D = -shift tracks the terrain.
+            // T(u) = f(u + D): features move by -D, so D = -shift tracks the water.
             _oceanSimulation.FieldOffset = new Vector2(-shift.x, -shift.z);
             Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(shift.x, 0f, shift.z, 0f));
+        }
+
+        /// <summary>
+        /// Where the sea surface has travelled in the room frame. The terrain shift is
+        /// ground-locked (spectral phase e^(iK·D) at the bridge); the water rides on top
+        /// of it with the current, so a ship dead in the water sees a still sea however
+        /// fast the coastline slides past. Heading is carried by BuildWindVector, whose
+        /// deterministic per-cell phases morph the spectrum smoothly instead of
+        /// re-randomizing it.
+        /// </summary>
+        private Vector3 ComputeWaterShift(double east, double north, double headingDeg)
+        {
+            var runner = NavigationSimRunner.Instance;
+            ShipState state = runner != null ? runner.Sim?.State : null;
+            double driftEast = state != null ? state.WaterDriftEast : 0.0;
+            double driftNorth = state != null ? state.WaterDriftNorth : 0.0;
+
+            if (_motion != null && _motion.HasInitialPose)
+            {
+                return _motion.ComputeWorldShiftAt(_pivotPosition)
+                       + _motion.GeoVectorToWorld(driftEast, driftNorth);
+            }
+
+            var yaw = Quaternion.AngleAxis(-(float)headingDeg, Vector3.up);
+            return _shipForwardBasis * (yaw * new Vector3(
+                (float)(driftEast - east), 0f, (float)(driftNorth - north)));
         }
 
         public double SampleHeight(double east, double north, double timeS)
@@ -513,8 +528,11 @@ namespace NavigationSim.UnityLayer
             }
 
             float yOffset = ResolveWaterLevelOffsetY();
-            // Mesh stays centered on the bridge; only waterline height is applied.
-            _oceanRoot.position = _pivotPosition + Vector3.up * yOffset;
+            // Mesh stays centered on the bridge. The vertical channel is the one the
+            // exterior world receives, so mean sea level and the coastline heave
+            // together: the ship rides its own wave instead of the sea climbing the
+            // windows while the horizon drops by the same amount.
+            _oceanRoot.position = _pivotPosition + Vector3.up * (yOffset + _waterShiftY);
             _oceanRoot.rotation = Quaternion.identity;
         }
 

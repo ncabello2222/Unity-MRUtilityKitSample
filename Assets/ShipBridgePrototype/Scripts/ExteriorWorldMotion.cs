@@ -263,6 +263,19 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
+        /// How a geographic displacement (east, north) renders in the room frame:
+        /// GeoToWorld(P + D) - GeoToWorld(P), independent of P. Content that drifts
+        /// geographically instead of staying put — the water mass under a current —
+        /// adds this on top of the rigid shift the terrain receives.
+        /// </summary>
+        public Vector3 GeoVectorToWorld(double east, double north)
+        {
+            ResolveShipPose(out _, out var shipRot);
+            var geo = _shipForwardBasis * new Vector3((float)east, 0f, (float)north);
+            return _shipForwardBasis * (Quaternion.Inverse(shipRot) * geo);
+        }
+
+        /// <summary>
         /// How far the exterior content that started at worldPoint has moved under the
         /// current inverse transform (mapped - original). Zero while the ship is at rest.
         /// </summary>

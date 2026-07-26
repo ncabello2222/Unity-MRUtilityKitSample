@@ -3,9 +3,10 @@ using System;
 namespace NavigationSim.Core
 {
     /// <summary>
-    /// Uniform sea current. The current never moves the ship visually by itself:
-    /// it changes the water-relative velocity used for hull, propeller and rudder
-    /// forces (pattern from PVS shipClarke83), while ground kinematics use u, v.
+    /// Uniform sea current. It is never added to the ground velocity by hand: it
+    /// changes the water-relative velocity used for hull, propeller and rudder
+    /// forces (pattern from PVS shipClarke83), and the resulting set and drift fall
+    /// out of the integration of u, v — so SOG/COG do carry it.
     /// </summary>
     public static class CurrentModel
     {
