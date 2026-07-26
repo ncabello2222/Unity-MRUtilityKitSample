@@ -817,9 +817,10 @@ namespace ShipBridgePrototype
                     }
                 }
 
-                if (!classified)
+                if (!classified && wall.PlaneRect.HasValue)
                 {
-                    CreateSolidWall(wall, wallsRoot, "ExtraWall");
+                    var extra = wall.PlaneRect.Value;
+                    CreateSolidWall(wall, wallsRoot, "ExtraWall", extra.xMin, extra.xMax);
                 }
             }
         }
@@ -877,32 +878,172 @@ namespace ShipBridgePrototype
                 return;
             }
 
+            ResolveWallSpanX(role, wall, out var xMin, out var xMax);
+
             if (!generateBridgeWindows)
             {
-                CreateSolidWall(wall, parent, role.ToString());
+                CreateSolidWall(wall, parent, role.ToString(), xMin, xMax);
                 return;
             }
 
             switch (role)
             {
                 case WallRole.Front:
-                    CreateFrontWindowWall(wall, parent);
+                    CreateFrontWindowWall(wall, parent, xMin, xMax);
                     break;
                 case WallRole.Port:
                 case WallRole.Starboard:
-                    CreateSideWindowWall(wall, parent, role);
+                    CreateSideWindowWall(wall, parent, role, xMin, xMax);
                     break;
                 case WallRole.Aft:
                 case WallRole.SolidExtra:
                 default:
-                    CreateSolidWall(wall, parent, role.ToString());
+                    CreateSolidWall(wall, parent, role.ToString(), xMin, xMax);
                     break;
             }
         }
 
-        private void CreateSolidWall(MRUKAnchor wall, Transform parent, string label)
+        /// <summary>
+        /// Front spans out to the outer faces of Port/Starboard so the bow wall owns the
+        /// corners; side walls are trimmed at the bow so they butt against that front face
+        /// instead of running past it and nesting the front wall between them.
+        /// </summary>
+        private void ResolveWallSpanX(WallRole role, MRUKAnchor wall, out float xMin, out float xMax)
         {
             var rect = wall.PlaneRect.Value;
+            xMin = rect.xMin;
+            xMax = rect.xMax;
+
+            switch (role)
+            {
+                case WallRole.Front:
+                    ExpandFrontWallToSideOuters(wall, ref xMin, ref xMax);
+                    break;
+                case WallRole.Port:
+                case WallRole.Starboard:
+                    TrimSideWallToFrontFace(wall, ref xMin, ref xMax);
+                    break;
+            }
+        }
+
+        private void ExpandFrontWallToSideOuters(MRUKAnchor front, ref float xMin, ref float xMax)
+        {
+            _classifiedWalls.TryGetValue(WallRole.Port, out var port);
+            _classifiedWalls.TryGetValue(WallRole.Starboard, out var starboard);
+
+            if (TryProjectSideOuterOntoFront(front, port, out var portX))
+            {
+                xMin = Mathf.Min(xMin, portX);
+                xMax = Mathf.Max(xMax, portX);
+            }
+
+            if (TryProjectSideOuterOntoFront(front, starboard, out var starboardX))
+            {
+                xMin = Mathf.Min(xMin, starboardX);
+                xMax = Mathf.Max(xMax, starboardX);
+            }
+        }
+
+        private bool TryProjectSideOuterOntoFront(MRUKAnchor front, MRUKAnchor side, out float frontLocalX)
+        {
+            frontLocalX = 0f;
+            if (front == null || side == null || !side.PlaneRect.HasValue)
+            {
+                return false;
+            }
+
+            // Outer face of the side wall (thickness grows along -local Z).
+            var sideRect = side.PlaneRect.Value;
+            var bowLocalX = GetBowLocalX(side, sideRect.xMin, sideRect.xMax);
+            var outerCorner = side.transform.TransformPoint(
+                new Vector3(bowLocalX, sideRect.center.y, -wallThickness));
+            frontLocalX = front.transform.InverseTransformPoint(outerCorner).x;
+            return true;
+        }
+
+        private void TrimSideWallToFrontFace(MRUKAnchor side, ref float xMin, ref float xMax)
+        {
+            if (!_classifiedWalls.TryGetValue(WallRole.Front, out var front) || front == null)
+            {
+                return;
+            }
+
+            if (!TryIntersectWallLocalX(side, front, 0f, out var frontFaceX))
+            {
+                return;
+            }
+
+            // Keep the aft end; pull the bow end back to the front wall's inner face.
+            if (Mathf.Abs(frontFaceX - xMin) <= Mathf.Abs(frontFaceX - xMax))
+            {
+                xMin = frontFaceX;
+            }
+            else
+            {
+                xMax = frontFaceX;
+            }
+
+            if (xMax < xMin)
+            {
+                (xMin, xMax) = (xMax, xMin);
+            }
+        }
+
+        private float GetBowLocalX(MRUKAnchor wall, float xMin, float xMax)
+        {
+            var leftWorld = wall.transform.TransformPoint(new Vector3(xMin, 0f, 0f));
+            var rightWorld = wall.transform.TransformPoint(new Vector3(xMax, 0f, 0f));
+            var bow = _bowForwardWorld.sqrMagnitude > 1e-6f ? _bowForwardWorld : Vector3.forward;
+            return Vector3.Dot(Flatten(leftWorld), bow) >= Vector3.Dot(Flatten(rightWorld), bow)
+                ? xMin
+                : xMax;
+        }
+
+        /// <summary>
+        /// Local-X on <paramref name="wall"/> where it meets the plane of
+        /// <paramref name="cutter"/> at the cutter's local Z.
+        /// </summary>
+        private static bool TryIntersectWallLocalX(
+            MRUKAnchor wall,
+            MRUKAnchor cutter,
+            float cutterLocalZ,
+            out float wallLocalX)
+        {
+            wallLocalX = 0f;
+            if (wall == null || cutter == null)
+            {
+                return false;
+            }
+
+            var planePoint = cutter.transform.TransformPoint(new Vector3(0f, 0f, cutterLocalZ));
+            var planeNormal = cutter.transform.forward;
+            var origin = wall.transform.position;
+            var axis = wall.transform.right;
+            var denom = Vector3.Dot(planeNormal, axis);
+            if (Mathf.Abs(denom) < 1e-5f)
+            {
+                return false;
+            }
+
+            var t = Vector3.Dot(planeNormal, planePoint - origin) / denom;
+            wallLocalX = wall.transform.InverseTransformPoint(origin + axis * t).x;
+            return true;
+        }
+
+        private void CreateSolidWall(
+            MRUKAnchor wall,
+            Transform parent,
+            string label,
+            float xMin,
+            float xMax)
+        {
+            var rect = wall.PlaneRect.Value;
+            var width = xMax - xMin;
+            if (width < 0.01f)
+            {
+                return;
+            }
+
             var wallRoot = new GameObject($"Wall_{label}").transform;
             wallRoot.SetParent(parent, false);
             wallRoot.SetPositionAndRotation(wall.transform.position, wall.transform.rotation);
@@ -910,26 +1051,33 @@ namespace ShipBridgePrototype
             CreateSolidWallPanel(
                 wallRoot,
                 "Solid",
-                new Vector3(rect.center.x, rect.center.y, -wallThickness * 0.5f),
-                new Vector3(rect.width, rect.height, wallThickness));
+                new Vector3((xMin + xMax) * 0.5f, rect.center.y, -wallThickness * 0.5f),
+                new Vector3(width, rect.height, wallThickness));
         }
 
-        private void CreateFrontWindowWall(MRUKAnchor wall, Transform parent)
+        private void CreateFrontWindowWall(MRUKAnchor wall, Transform parent, float xMin, float xMax)
         {
             var rect = wall.PlaneRect.Value;
             var wallRoot = new GameObject("Wall_Front").transform;
             wallRoot.SetParent(parent, false);
             wallRoot.SetPositionAndRotation(wall.transform.position, wall.transform.rotation);
 
-            var halfW = rect.width * 0.5f;
+            var width = xMax - xMin;
+            if (width < 0.01f)
+            {
+                return;
+            }
+
+            var halfW = width * 0.5f;
+            var centerX = (xMin + xMax) * 0.5f;
             var bottomY = rect.yMin;
             var topY = rect.yMax;
 
             var windowBottom = Mathf.Clamp(bottomY + windowWaistHeight, bottomY + 0.05f, topY - 0.2f);
             var windowTop = Mathf.Clamp(topY - windowTopClearance, windowBottom + 0.2f, topY - 0.02f);
             var margin = Mathf.Clamp(frontWindowSideMargin, 0f, halfW * 0.45f);
-            var windowLeft = rect.xMin + margin;
-            var windowRight = rect.xMax - margin;
+            var windowLeft = xMin + margin;
+            var windowRight = xMax - margin;
             var windowWidth = windowRight - windowLeft;
             var windowHeight = windowTop - windowBottom;
             var windowCenterX = (windowLeft + windowRight) * 0.5f;
@@ -940,8 +1088,8 @@ namespace ShipBridgePrototype
             CreateSolidWallPanel(
                 wallRoot,
                 "Bottom",
-                new Vector3(rect.center.x, (bottomY + windowBottom) * 0.5f, z),
-                new Vector3(rect.width, windowBottom - bottomY, wallThickness));
+                new Vector3(centerX, (bottomY + windowBottom) * 0.5f, z),
+                new Vector3(width, windowBottom - bottomY, wallThickness));
 
             // Top strip above the window (near ceiling).
             var topStripHeight = topY - windowTop;
@@ -950,8 +1098,8 @@ namespace ShipBridgePrototype
                 CreateSolidWallPanel(
                     wallRoot,
                     "Top",
-                    new Vector3(rect.center.x, (windowTop + topY) * 0.5f, z),
-                    new Vector3(rect.width, topStripHeight, wallThickness));
+                    new Vector3(centerX, (windowTop + topY) * 0.5f, z),
+                    new Vector3(width, topStripHeight, wallThickness));
             }
 
             // Left / right pillars (narrow margins) — keep opening continuous; only if margin > 0.
@@ -960,12 +1108,12 @@ namespace ShipBridgePrototype
                 CreateSolidWallPanel(
                     wallRoot,
                     "LeftPillar",
-                    new Vector3((rect.xMin + windowLeft) * 0.5f, windowCenterY, z),
+                    new Vector3((xMin + windowLeft) * 0.5f, windowCenterY, z),
                     new Vector3(margin, windowHeight, wallThickness));
                 CreateSolidWallPanel(
                     wallRoot,
                     "RightPillar",
-                    new Vector3((windowRight + rect.xMax) * 0.5f, windowCenterY, z),
+                    new Vector3((windowRight + xMax) * 0.5f, windowCenterY, z),
                     new Vector3(margin, windowHeight, wallThickness));
             }
 
@@ -976,9 +1124,20 @@ namespace ShipBridgePrototype
                 windowHeight);
         }
 
-        private void CreateSideWindowWall(MRUKAnchor wall, Transform parent, WallRole role)
+        private void CreateSideWindowWall(
+            MRUKAnchor wall,
+            Transform parent,
+            WallRole role,
+            float xMin,
+            float xMax)
         {
             var rect = wall.PlaneRect.Value;
+            var spanWidth = xMax - xMin;
+            if (spanWidth < 0.01f)
+            {
+                return;
+            }
+
             var wallRoot = new GameObject($"Wall_{role}").transform;
             wallRoot.SetParent(parent, false);
             wallRoot.SetPositionAndRotation(wall.transform.position, wall.transform.rotation);
@@ -993,28 +1152,24 @@ namespace ShipBridgePrototype
 
             // Which local-X end faces the bow — use BridgeReferenceFrame forward, not a
             // separate Front-wall search.
-            var leftWorld = wall.transform.TransformPoint(new Vector3(rect.xMin, rect.center.y, 0f));
-            var rightWorld = wall.transform.TransformPoint(new Vector3(rect.xMax, rect.center.y, 0f));
-            var bow = _bowForwardWorld.sqrMagnitude > 1e-6f ? _bowForwardWorld : Vector3.forward;
-            var frontIsTowardLocalMinX =
-                Vector3.Dot(Flatten(leftWorld), bow) >= Vector3.Dot(Flatten(rightWorld), bow);
+            var frontIsTowardLocalMinX = Mathf.Abs(GetBowLocalX(wall, xMin, xMax) - xMin) < 1e-4f;
 
-            var windowLength = Mathf.Clamp01(sideWindowLengthRatio) * rect.width;
+            var windowLength = Mathf.Clamp01(sideWindowLengthRatio) * spanWidth;
             float windowMinX;
             float windowMaxX;
             if (frontIsTowardLocalMinX)
             {
-                windowMinX = rect.xMin;
-                windowMaxX = rect.xMin + windowLength;
+                windowMinX = xMin;
+                windowMaxX = xMin + windowLength;
             }
             else
             {
-                windowMaxX = rect.xMax;
-                windowMinX = rect.xMax - windowLength;
+                windowMaxX = xMax;
+                windowMinX = xMax - windowLength;
             }
 
-            var solidMinX = frontIsTowardLocalMinX ? windowMaxX : rect.xMin;
-            var solidMaxX = frontIsTowardLocalMinX ? rect.xMax : windowMinX;
+            var solidMinX = frontIsTowardLocalMinX ? windowMaxX : xMin;
+            var solidMaxX = frontIsTowardLocalMinX ? xMax : windowMinX;
             var solidWidth = solidMaxX - solidMinX;
 
             // Solid rear half (full height).
