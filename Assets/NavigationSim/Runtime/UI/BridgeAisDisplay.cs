@@ -15,12 +15,20 @@ namespace NavigationSim.UnityLayer.UI
     {
         private const float Width = 900f;
         private const float Height = 720f;
+
+        /// <summary>
+        /// A class A transponder reports every 2–10 s. Retyping the whole table five
+        /// times a second was both fictional and the most expensive thing this panel did.
+        /// </summary>
+        private const float RefreshSeconds = 1f;
+
         private static readonly Vector3 Prewarm = new Vector3(0f, -1600f, 0f);
 
         private NavigationSimRunner _runner;
         private GameObject _root;
         private Canvas _canvas;
         private TMP_Text _list;
+        private readonly StringBuilder _sb = new StringBuilder(1024);
         private float _timer;
         private bool _openWhenReady;
         private bool _built;
@@ -68,7 +76,7 @@ namespace NavigationSim.UnityLayer.UI
                 return;
             }
 
-            _timer = 0.2f;
+            _timer = RefreshSeconds;
             Refresh();
         }
 
@@ -129,7 +137,10 @@ namespace NavigationSim.UnityLayer.UI
             BridgeInstrumentCanvas.Button(rt, new Vector2(Width - 70f, -10f), new Vector2(50f, 36f),
                 "X", BridgeInstrumentCanvas.Danger, Close);
 
-            _list = BridgeInstrumentCanvas.Text(rt, "List", new Vector2(24f, -60f),
+            // The table is the only thing that changes; keep its rebuilds off the
+            // canvas holding the background and the close button.
+            var readouts = BridgeInstrumentCanvas.SubCanvas(rt, "Readouts", new Vector2(Width, Height));
+            _list = BridgeInstrumentCanvas.Text(readouts, "List", new Vector2(24f, -60f),
                 new Vector2(Width - 48f, Height - 90f), "", 20f, TextAlignmentOptions.TopLeft,
                 BridgeInstrumentCanvas.TextPrimary);
             _list.textWrappingMode = TextWrappingModes.Normal;
@@ -142,14 +153,14 @@ namespace NavigationSim.UnityLayer.UI
             var traffic = _runner.Traffic;
             var arpa = _runner.Arpa;
             var s = _runner.Sim.State;
-            var sb = new StringBuilder(1024);
-            sb.AppendLine("MMSI       NAME            RNG    BRG   COG  SOG   CPA   TCPA");
-            sb.AppendLine("----------------------------------------------------------------");
+            _sb.Clear();
+            _sb.Append("MMSI       NAME            RNG    BRG   COG  SOG   CPA   TCPA\n");
+            _sb.Append("----------------------------------------------------------------\n");
 
             if (traffic == null)
             {
-                sb.AppendLine("(no traffic)");
-                _list.text = sb.ToString();
+                _sb.Append("(no traffic)\n");
+                _list.SetText(_sb);
                 return;
             }
 
@@ -163,12 +174,6 @@ namespace NavigationSim.UnityLayer.UI
 
                 c.RangeBearingFrom(s.North, s.East, out double rangeM, out double bearing);
                 double rangeNm = rangeM / 1852.0;
-                string mmsi = c.Mmsi > 0 ? c.Mmsi.ToString("000000000") : "---------";
-                string name = c.Name;
-                if (name.Length > 14)
-                {
-                    name = name.Substring(0, 14);
-                }
 
                 double cpa = 0, tcpa = 0;
                 if (arpa != null)
@@ -184,14 +189,38 @@ namespace NavigationSim.UnityLayer.UI
                     }
                 }
 
-                sb.AppendLine(
-                    $"{mmsi}  {name,-14}  {rangeNm,5:0.00}  {bearing,5:000}  " +
-                    $"{c.HeadingDeg,5:000} {c.SogKn,4:0.0}  {cpa,5:0.00} {tcpa,6:+0.0;-0.0;0.0}");
+                if (c.Mmsi > 0)
+                {
+                    _sb.AppendFormat("{0:000000000}", c.Mmsi);
+                }
+                else
+                {
+                    _sb.Append("---------");
+                }
+
+                _sb.Append("  ");
+                AppendPadded(_sb, c.Name, 14);
+                _sb.AppendFormat("  {0,5:0.00}  {1,5:000}  {2,5:000} {3,4:0.0}  {4,5:0.00} {5,6:+0.0;-0.0;0.0}\n",
+                    rangeNm, bearing, c.HeadingDeg, c.SogKn, cpa, tcpa);
             }
 
-            sb.AppendLine();
-            sb.AppendLine("Synthetic AIS (no VHF). Same contacts as radar/chart.");
-            _list.text = sb.ToString();
+            _sb.Append("\nSynthetic AIS (no VHF). Same contacts as radar/chart.\n");
+            _list.SetText(_sb);
+        }
+
+        /// <summary>Left-aligned fixed-width name without cutting a substring out of it.</summary>
+        private static void AppendPadded(StringBuilder sb, string s, int width)
+        {
+            int count = s == null ? 0 : System.Math.Min(s.Length, width);
+            for (int i = 0; i < count; i++)
+            {
+                sb.Append(s[i]);
+            }
+
+            for (int i = count; i < width; i++)
+            {
+                sb.Append(' ');
+            }
         }
     }
 }

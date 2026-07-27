@@ -66,6 +66,11 @@ namespace NavigationSim.UnityLayer
 
         private double _accumulator;
 
+        /// <summary>Radar/ARPA refresh period. See the call site in <c>Update</c>.</summary>
+        private const float SensorPeriod = 0.1f;
+
+        private float _sensorAccumulator;
+
         // Snapshots for render interpolation.
         private double _prevNorth, _prevEast, _prevPsiDeg, _prevHeave, _prevRoll, _prevPitch;
         private double _currNorth, _currEast, _currPsiDeg, _currHeave, _currRoll, _currPitch;
@@ -149,8 +154,19 @@ namespace NavigationSim.UnityLayer
                 _accumulator -= FixedStep;
             }
 
-            Radar.UpdateEchoes(Sim.State, Traffic, LandSamples);
-            Arpa.Update(Sim.State, Traffic);
+            // Sensor rate, not frame rate. Sweeping every contact and every coastline
+            // sample (up to ~1500 points, one square root each) ninety times a second
+            // fed a radar that repaints twice a second and an ARPA list nobody reads
+            // that fast. Ten hertz still trips the guard zone inside a tenth of a
+            // second, which is well under the reaction time it is there to buy.
+            _sensorAccumulator += Time.deltaTime;
+            if (_sensorAccumulator >= SensorPeriod)
+            {
+                _sensorAccumulator = 0f;
+                Radar.UpdateEchoes(Sim.State, Traffic, LandSamples);
+                Arpa.Update(Sim.State, Traffic);
+            }
+
             // Wall-clock, not sim time: a plotter on the other end wants one fix a second
             // however fast the exercise is running. Feeding it scaled time made x60 emit
             // sixty sentences per real second and swamp the listener.

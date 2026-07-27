@@ -13,22 +13,73 @@ namespace NavigationSim.UnityLayer.UI
     /// <summary>
     /// Synthetic marine radar PPI with EBL/VRM, ARPA list, guard zone and PIs.
     /// Toggle: keyboard R, or open from BridgeInstrumentsMenu (Quest left X).
+    /// <para>
+    /// The PPI is rasterised on the CPU, so how it is rasterised decides whether the
+    /// headset holds frame rate. Everything here writes into one reused
+    /// <see cref="Color32"/> buffer and uploads it once — no <c>GetPixels</c>,
+    /// no <c>SetPixel</c>, no per-pixel readback.
+    /// </para>
     /// </summary>
     public sealed class BridgeRadarDisplay : MonoBehaviour
     {
         private const float Width = 1200f;
         private const float Height = 960f;
-        private const int PpiSize = 640;
+
+        /// <summary>PPI edge in panel units. This is the size the user actually sees.</summary>
+        private const float PpiUi = 640f;
+
+        /// <summary>
+        /// Raster resolution, deliberately below the panel size. The plot subtends about
+        /// 21° of arc at the 1.75 m viewing distance and the headset resolves roughly
+        /// 20 px per degree, so ~420 px is all it can show: 512 keeps a margin while
+        /// costing 36% fewer pixels than the 640 this started at.
+        /// </summary>
+        private const int PpiPixels = 512;
+
+        /// <summary>
+        /// Antenna period. The echo raster is the expensive half of a refresh and a real
+        /// X-band scanner turns at 24 rpm, so repainting it eight times a second bought
+        /// nothing but dropped frames. Sweep, heading flash and EBL are rotating quads
+        /// now, so they stay smooth at frame rate regardless of this.
+        /// </summary>
+        private const float RefreshSeconds = 0.4f;
+
         private static readonly Vector3 Prewarm = new Vector3(0f, -1400f, 0f);
+
+        private static readonly Color32 EchoShip = new Color32(102, 255, 115, 255);
+        private static readonly Color32 EchoBuoy = new Color32(255, 217, 51, 255);
+        private static readonly Color32 EchoLand = new Color32(140, 140, 89, 255);
+        private static readonly Color32 ScreenBg = new Color32(5, 20, 10, 255);
+        private static readonly Color32 RingColor = new Color32(38, 115, 64, 255);
 
         private NavigationSimRunner _runner;
         private GameObject _root;
         private Canvas _canvas;
         private RawImage _ppi;
         private Texture2D _tex;
+
+        /// <summary>Scratch frame. Reused every refresh; never reallocated.</summary>
+        private Color32[] _frame;
+
+        /// <summary>
+        /// The circular screen mask, baked once. Restoring it is a 1 MB memcpy; deriving
+        /// it was a quarter-million distance tests and as many texture writes.
+        /// </summary>
+        private Color32[] _screenMask;
+
+        private Image _sweep;
+        private Image _headingFlash;
+        private Image _ebl;
+        private bool _radialsVisible = true;
+
         private TMP_Text _dataLabel;
         private TMP_Text _arpaLabel;
         private TMP_Text _modeLabel;
+
+        private readonly StringBuilder _modeSb = new StringBuilder(128);
+        private readonly StringBuilder _dataSb = new StringBuilder(256);
+        private readonly StringBuilder _arpaSb = new StringBuilder(512);
+
         private float _timer;
         private float _sweepDeg;
         private bool _openWhenReady;
@@ -73,13 +124,15 @@ namespace NavigationSim.UnityLayer.UI
             }
 
             _sweepDeg = (_sweepDeg + Time.deltaTime * 72f) % 360f;
+            AimRadials();
+
             _timer -= Time.deltaTime;
             if (_timer > 0f)
             {
                 return;
             }
 
-            _timer = 0.12f;
+            _timer = RefreshSeconds;
             Refresh();
         }
 
@@ -204,15 +257,23 @@ namespace NavigationSim.UnityLayer.UI
                     }
                 });
 
-            _modeLabel = BridgeInstrumentCanvas.Text(rt, "Mode", new Vector2(430f, -55f),
+            // Readouts live on their own canvas: they are retyped every refresh and
+            // would otherwise dirty the batch holding the background and all the buttons.
+            var readouts = BridgeInstrumentCanvas.SubCanvas(rt, "Readouts", new Vector2(Width, Height));
+
+            _modeLabel = BridgeInstrumentCanvas.Text(readouts, "Mode", new Vector2(430f, -55f),
                 new Vector2(400f, 34f), "", 20f, TextAlignmentOptions.Left,
                 BridgeInstrumentCanvas.TextPrimary);
 
-            _tex = new Texture2D(PpiSize, PpiSize, TextureFormat.RGBA32, false)
+            _tex = new Texture2D(PpiPixels, PpiPixels, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Bilinear,
                 wrapMode = TextureWrapMode.Clamp
             };
+            _frame = new Color32[PpiPixels * PpiPixels];
+            _screenMask = new Color32[PpiPixels * PpiPixels];
+            BakeScreenMask();
+
             var plotGo = new GameObject("PPI", typeof(RectTransform));
             plotGo.transform.SetParent(rt, false);
             var plotRt = plotGo.GetComponent<RectTransform>();
@@ -220,22 +281,90 @@ namespace NavigationSim.UnityLayer.UI
             plotRt.anchorMax = new Vector2(0f, 1f);
             plotRt.pivot = new Vector2(0f, 1f);
             plotRt.anchoredPosition = new Vector2(40f, -240f);
-            plotRt.sizeDelta = new Vector2(PpiSize, PpiSize);
+            plotRt.sizeDelta = new Vector2(PpiUi, PpiUi);
             _ppi = plotGo.AddComponent<RawImage>();
             _ppi.texture = _tex;
             _ppi.raycastTarget = false;
 
-            _dataLabel = BridgeInstrumentCanvas.Text(rt, "Data", new Vector2(700f, -240f),
+            // Sweep, heading flash and EBL are quads over the plot. They move every frame,
+            // which is exactly what a rasterised line cannot afford to do.
+            float radialLen = PpiUi * 0.48f;
+            _sweep = BridgeInstrumentCanvas.Radial(plotRt, "Sweep", radialLen, 3f,
+                new Color(0.3f, 0.9f, 0.4f, 0.35f));
+            _headingFlash = BridgeInstrumentCanvas.Radial(plotRt, "HeadingFlash", radialLen, 2f,
+                new Color(0.9f, 0.9f, 0.5f, 0.8f));
+            _ebl = BridgeInstrumentCanvas.Radial(plotRt, "Ebl", radialLen, 2f,
+                BridgeInstrumentCanvas.AccentAmber);
+
+            _dataLabel = BridgeInstrumentCanvas.Text(readouts, "Data", new Vector2(700f, -240f),
                 new Vector2(460f, 220f), "", 20f, TextAlignmentOptions.TopLeft,
                 BridgeInstrumentCanvas.TextPrimary);
             _dataLabel.textWrappingMode = TextWrappingModes.Normal;
 
-            _arpaLabel = BridgeInstrumentCanvas.Text(rt, "Arpa", new Vector2(700f, -480f),
+            _arpaLabel = BridgeInstrumentCanvas.Text(readouts, "Arpa", new Vector2(700f, -480f),
                 new Vector2(460f, 440f), "", 17f, TextAlignmentOptions.TopLeft,
                 BridgeInstrumentCanvas.TextMuted);
             _arpaLabel.textWrappingMode = TextWrappingModes.Normal;
 
             _built = true;
+        }
+
+        /// <summary>
+        /// The transparent surround and the dark screen disc, computed once. Range rings
+        /// are not baked in: they must vanish when the set is switched off, and four
+        /// circles is a few thousand writes — nothing next to the mask.
+        /// </summary>
+        private void BakeScreenMask()
+        {
+            const int c = PpiPixels / 2;
+            float radius = PpiPixels * 0.48f;
+            float r2 = radius * radius;
+
+            Array.Clear(_screenMask, 0, _screenMask.Length);
+            for (int y = 0; y < PpiPixels; y++)
+            {
+                int dy = y - c;
+                int row = y * PpiPixels;
+                float rowTerm = r2 - dy * dy;
+                if (rowTerm < 0f)
+                {
+                    continue;
+                }
+
+                int halfSpan = (int)Mathf.Sqrt(rowTerm);
+                int x0 = Mathf.Max(0, c - halfSpan);
+                int x1 = Mathf.Min(PpiPixels - 1, c + halfSpan);
+                for (int x = x0; x <= x1; x++)
+                {
+                    _screenMask[row + x] = ScreenBg;
+                }
+            }
+        }
+
+        /// <summary>Aims the three rotating quads. Runs every frame; costs three quaternions.</summary>
+        private void AimRadials()
+        {
+            var radar = _runner.Radar;
+            var s = _runner.Sim.State;
+
+            if (_radialsVisible != radar.PowerOn)
+            {
+                _radialsVisible = radar.PowerOn;
+                _sweep.enabled = _radialsVisible;
+                _headingFlash.enabled = _radialsVisible;
+                _ebl.enabled = _radialsVisible;
+            }
+
+            if (!_radialsVisible)
+            {
+                return;
+            }
+
+            BridgeInstrumentCanvas.PointRadial(_sweep, _sweepDeg);
+            BridgeInstrumentCanvas.PointRadial(_headingFlash,
+                radar.BearingToScreenDeg(s.HeadingDeg, s.HeadingDeg, s.CogDeg));
+            BridgeInstrumentCanvas.PointRadial(_ebl,
+                radar.BearingToScreenDeg(radar.EblBearingDeg, s.HeadingDeg, s.CogDeg));
         }
 
         private void Refresh()
@@ -244,128 +373,119 @@ namespace NavigationSim.UnityLayer.UI
             var s = _runner.Sim.State;
             var arpa = _runner.Arpa;
 
-            _modeLabel.text =
-                $"{(radar.PowerOn ? "ON" : "OFF")}  {radar.Orientation}  RNG {radar.RangeNm:0.##} Nm" +
-                (radar.GuardAlarm ? "  GUARD ALARM" : "") +
-                (arpa.TrialManoeuvre ? "  TRIAL" : "");
+            _modeSb.Clear();
+            _modeSb.Append(radar.PowerOn ? "ON" : "OFF").Append("  ")
+                .Append(OrientationName(radar.Orientation)).Append("  RNG ")
+                .AppendFormat("{0:0.##}", radar.RangeNm).Append(" Nm");
+            if (radar.GuardAlarm)
+            {
+                _modeSb.Append("  GUARD ALARM");
+            }
+
+            if (arpa.TrialManoeuvre)
+            {
+                _modeSb.Append("  TRIAL");
+            }
+
+            _modeLabel.SetText(_modeSb);
 
             DrawPpi(radar, s, arpa);
 
             radar.CursorBearingDeg = radar.EblBearingDeg;
             radar.CursorRangeNm = radar.VrmNm;
 
-            var sb = new StringBuilder(256);
-            sb.AppendLine($"EBL {radar.EblBearingDeg:000.0}°");
-            sb.AppendLine($"VRM {radar.VrmNm:0.00} Nm");
-            sb.AppendLine($"CUR {radar.CursorRangeNm:0.00} Nm / {radar.CursorBearingDeg:000.0}°");
-            sb.AppendLine($"HDG {s.HeadingDeg:000.0}  COG {s.CogDeg:000.0}");
-            sb.AppendLine($"SOG {s.SogMs * 1.94384449244:0.0} kn");
-            sb.AppendLine($"Echoes {radar.Echoes.Count}");
-            sb.AppendLine($"PI sel #{_activePi + 1}");
+            _dataSb.Clear();
+            _dataSb.AppendFormat("EBL {0:000.0}°\n", radar.EblBearingDeg);
+            _dataSb.AppendFormat("VRM {0:0.00} Nm\n", radar.VrmNm);
+            _dataSb.AppendFormat("CUR {0:0.00} Nm / {1:000.0}°\n", radar.CursorRangeNm, radar.CursorBearingDeg);
+            _dataSb.AppendFormat("HDG {0:000.0}  COG {1:000.0}\n", s.HeadingDeg, s.CogDeg);
+            _dataSb.AppendFormat("SOG {0:0.0} kn\n", s.SogMs * 1.94384449244);
+            _dataSb.AppendFormat("Echoes {0}\n", radar.Echoes.Count);
+            _dataSb.AppendFormat("PI sel #{0}\n", _activePi + 1);
             if (arpa.TrialManoeuvre)
             {
-                sb.AppendLine($"Trial {arpa.TrialCourseDeg:000}° {arpa.TrialSpeedKn:0.0} kn");
+                _dataSb.AppendFormat("Trial {0:000}° {1:0.0} kn\n", arpa.TrialCourseDeg, arpa.TrialSpeedKn);
             }
 
-            _dataLabel.text = sb.ToString();
+            _dataLabel.SetText(_dataSb);
             _dataLabel.color = radar.GuardAlarm
                 ? BridgeInstrumentCanvas.Danger
                 : BridgeInstrumentCanvas.TextPrimary;
 
-            var arpaSb = new StringBuilder(512);
-            arpaSb.AppendLine(arpa.Enabled
-                ? $"ARPA {(arpa.TrueVectors ? "TRUE" : "REL")} vec {arpa.VectorMinutes:0} min"
-                : "ARPA OFF");
+            _arpaSb.Clear();
             if (arpa.Enabled)
             {
+                _arpaSb.AppendFormat("ARPA {0} vec {1:0} min\n",
+                    arpa.TrueVectors ? "TRUE" : "REL", arpa.VectorMinutes);
+
                 int shown = 0;
                 for (int i = 0; i < arpa.Tracks.Count && shown < 8; i++, shown++)
                 {
                     var t = arpa.Tracks[i];
-                    string flag = t.Dangerous ? "!" : " ";
-                    arpaSb.AppendLine(
-                        $"{flag}{t.ContactId:00} {Trim(t.Name, 10)}  " +
-                        $"{t.RangeNm:0.00}Nm {t.BearingDeg:000}°  " +
-                        $"CPA {t.CpaNm:0.00}  TCPA {t.TcpaMin:+0.0;-0.0;0.0}m");
+                    _arpaSb.Append(t.Dangerous ? '!' : ' ');
+                    _arpaSb.AppendFormat("{0:00} ", t.ContactId);
+                    AppendTrimmed(_arpaSb, t.Name, 10);
+                    _arpaSb.AppendFormat("  {0:0.00}Nm {1:000}°  CPA {2:0.00}  TCPA {3:+0.0;-0.0;0.0}m\n",
+                        t.RangeNm, t.BearingDeg, t.CpaNm, t.TcpaMin);
                 }
 
                 if (arpa.Tracks.Count == 0)
                 {
-                    arpaSb.AppendLine("(no tracks)");
+                    _arpaSb.Append("(no tracks)\n");
                 }
             }
+            else
+            {
+                _arpaSb.Append("ARPA OFF\n");
+            }
 
-            _arpaLabel.text = arpaSb.ToString();
+            _arpaLabel.SetText(_arpaSb);
         }
 
-        private static string Trim(string s, int n)
+        /// <summary>Enum.ToString() allocates and does a reflection lookup; these do not.</summary>
+        private static string OrientationName(RadarOrientation o) => o switch
+        {
+            RadarOrientation.HeadUp => "HEAD UP",
+            RadarOrientation.CourseUp => "COURSE UP",
+            _ => "NORTH UP"
+        };
+
+        private static void AppendTrimmed(StringBuilder sb, string s, int n)
         {
             if (string.IsNullOrEmpty(s))
             {
-                return "—";
+                sb.Append('—');
+                return;
             }
 
-            return s.Length <= n ? s : s.Substring(0, n);
+            int count = Math.Min(s.Length, n);
+            for (int i = 0; i < count; i++)
+            {
+                sb.Append(s[i]);
+            }
         }
 
         private void DrawPpi(RadarModel radar, ShipState s, ArpaTracker arpa)
         {
-            int w = _tex.width;
-            int h = _tex.height;
-            int cx = w / 2;
-            int cy = h / 2;
-            float radius = w * 0.48f;
-            var bg = new Color(0.02f, 0.08f, 0.04f, 1f);
-            var ring = new Color(0.15f, 0.45f, 0.25f, 1f);
-            var echoShip = new Color(0.4f, 1f, 0.45f, 1f);
-            var echoBuoy = new Color(1f, 0.85f, 0.2f, 1f);
-            var echoLand = new Color(0.55f, 0.55f, 0.35f, 1f);
+            const int cx = PpiPixels / 2;
+            const int cy = PpiPixels / 2;
+            float radius = PpiPixels * 0.48f;
 
-            var pixels = _tex.GetPixels();
-            for (int i = 0; i < pixels.Length; i++)
-            {
-                pixels[i] = Color.clear;
-            }
-
-            _tex.SetPixels(pixels);
-
-            // Circular mask background.
-            float r2 = radius * radius;
-            for (int y = 0; y < h; y++)
-            {
-                for (int x = 0; x < w; x++)
-                {
-                    float dx = x - cx;
-                    float dy = y - cy;
-                    if (dx * dx + dy * dy <= r2)
-                    {
-                        _tex.SetPixel(x, y, bg);
-                    }
-                }
-            }
+            Array.Copy(_screenMask, _frame, _frame.Length);
 
             if (!radar.PowerOn)
             {
-                _tex.Apply(false);
+                Upload();
                 return;
             }
 
             // Range rings.
             for (int i = 1; i <= 4; i++)
             {
-                DrawCircle(cx, cy, radius * i / 4f, ring);
+                DrawCircle(cx, cy, radius * i / 4f, RingColor);
             }
 
-            // Heading flash (ship heading in screen space).
-            double hdgScreen = radar.BearingToScreenDeg(s.HeadingDeg, s.HeadingDeg, s.CogDeg);
-            DrawRadial(cx, cy, radius, hdgScreen, new Color(0.9f, 0.9f, 0.5f, 0.8f));
-
-            // Sweep.
-            DrawRadial(cx, cy, radius, _sweepDeg, new Color(0.3f, 0.9f, 0.4f, 0.35f));
-
-            // EBL / VRM.
-            double eblScreen = radar.BearingToScreenDeg(radar.EblBearingDeg, s.HeadingDeg, s.CogDeg);
-            DrawRadial(cx, cy, radius, eblScreen, BridgeInstrumentCanvas.AccentAmber);
+            // VRM.
             float vrmR = (float)(radar.VrmNm / Math.Max(0.01, radar.RangeNm)) * radius;
             DrawCircle(cx, cy, vrmR, BridgeInstrumentCanvas.AccentAmber);
 
@@ -404,8 +524,8 @@ namespace NavigationSim.UnityLayer.UI
                 }
 
                 PolarToPixel(cx, cy, rr, screenBrg, out int px, out int py);
-                Color col = e.IsLand ? echoLand : e.Kind == TrafficKind.Buoy ? echoBuoy : echoShip;
-                FillDisk(px, py, e.IsLand ? 2 : 4, col);
+                Color32 col = e.IsLand ? EchoLand : e.Kind == TrafficKind.Buoy ? EchoBuoy : EchoShip;
+                FillDisk(px, py, e.IsLand ? 2 : 3, col);
             }
 
             // ARPA vectors.
@@ -427,11 +547,10 @@ namespace NavigationSim.UnityLayer.UI
                     double vecNm = speedKn * (arpa.VectorMinutes / 60.0);
                     double vecScreen = radar.BearingToScreenDeg(course, s.HeadingDeg, s.CogDeg);
                     float len = (float)(vecNm / radar.RangeNm) * radius;
-                    PolarToPixel(px, py, len, vecScreen, out int x2, out int y2);
-                    // Vector from echo position: reinterpret polar from px,py as offset.
+                    // Vector from the echo position: polar offset, not a second plot origin.
                     double rad = vecScreen * Math.PI / 180.0;
-                    x2 = px + (int)(Math.Sin(rad) * len);
-                    y2 = py + (int)(Math.Cos(rad) * len);
+                    int x2 = px + (int)(Math.Sin(rad) * len);
+                    int y2 = py + (int)(Math.Cos(rad) * len);
                     DrawLine(px, py, x2, y2,
                         t.Dangerous ? BridgeInstrumentCanvas.Danger : BridgeInstrumentCanvas.AccentCyan);
                 }
@@ -439,11 +558,28 @@ namespace NavigationSim.UnityLayer.UI
 
             // Own-ship mark.
             FillDisk(cx, cy, 3, Color.white);
+            Upload();
+        }
+
+        /// <summary>One memcpy into the texture and one upload — no per-pixel API calls.</summary>
+        private void Upload()
+        {
+            _tex.SetPixelData(_frame, 0);
             _tex.Apply(false);
         }
 
+        private void Plot(int x, int y, Color32 c)
+        {
+            if ((uint)x >= (uint)PpiPixels || (uint)y >= (uint)PpiPixels)
+            {
+                return;
+            }
+
+            _frame[y * PpiPixels + x] = c;
+        }
+
         private void DrawParallelIndex(int cx, int cy, float radius, double bearingScreenDeg,
-            float offsetPx, Color c)
+            float offsetPx, Color32 c)
         {
             double rad = bearingScreenDeg * Math.PI / 180.0;
             // Line perpendicular to bearing, offset by range along bearing.
@@ -458,7 +594,7 @@ namespace NavigationSim.UnityLayer.UI
             DrawLine(x0, y0, x1, y1, c);
         }
 
-        private void DrawCircle(int cx, int cy, float r, Color c)
+        private void DrawCircle(int cx, int cy, float r, Color32 c)
         {
             if (r < 1f)
             {
@@ -482,14 +618,6 @@ namespace NavigationSim.UnityLayer.UI
             }
         }
 
-        private void DrawRadial(int cx, int cy, float r, double screenDeg, Color c)
-        {
-            double rad = screenDeg * Math.PI / 180.0;
-            int x2 = cx + (int)(Math.Sin(rad) * r);
-            int y2 = cy + (int)(Math.Cos(rad) * r);
-            DrawLine(cx, cy, x2, y2, c);
-        }
-
         private static void PolarToPixel(int cx, int cy, float r, double screenDeg, out int px, out int py)
         {
             double rad = screenDeg * Math.PI / 180.0;
@@ -497,43 +625,29 @@ namespace NavigationSim.UnityLayer.UI
             py = cy + (int)(Math.Cos(rad) * r);
         }
 
-        private void FillDisk(int cx, int cy, int r, Color c)
+        private void FillDisk(int cx, int cy, int r, Color32 c)
         {
             int r2 = r * r;
             for (int y = -r; y <= r; y++)
             {
                 for (int x = -r; x <= r; x++)
                 {
-                    if (x * x + y * y > r2)
+                    if (x * x + y * y <= r2)
                     {
-                        continue;
-                    }
-
-                    int px = cx + x;
-                    int py = cy + y;
-                    if (px >= 0 && px < _tex.width && py >= 0 && py < _tex.height)
-                    {
-                        _tex.SetPixel(px, py, c);
+                        Plot(cx + x, cy + y, c);
                     }
                 }
             }
         }
 
-        private void DrawLine(int x0, int y0, int x1, int y1, Color c)
+        private void DrawLine(int x0, int y0, int x1, int y1, Color32 c)
         {
             int dx = Math.Abs(x1 - x0), sx = x0 < x1 ? 1 : -1;
             int dy = -Math.Abs(y1 - y0), sy = y0 < y1 ? 1 : -1;
             int err = dx + dy;
             while (true)
             {
-                if (x0 >= 0 && x0 < _tex.width && y0 >= 0 && y0 < _tex.height)
-                {
-                    float existing = _tex.GetPixel(x0, y0).a;
-                    if (existing < 0.05f || c.a > 0.5f)
-                    {
-                        _tex.SetPixel(x0, y0, c);
-                    }
-                }
+                Plot(x0, y0, c);
 
                 if (x0 == x1 && y0 == y1)
                 {

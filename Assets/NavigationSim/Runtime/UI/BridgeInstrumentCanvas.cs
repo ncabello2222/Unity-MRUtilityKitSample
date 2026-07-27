@@ -34,9 +34,14 @@ namespace NavigationSim.UnityLayer.UI
             }
         }
 
+        /// <summary>
+        /// No GraphicRaycaster: every button on these panels is driven by
+        /// <see cref="SimUiButton"/> through a BoxCollider and a physics ray from
+        /// <see cref="VrUiPointer"/>, so the graphic raycast path was pure overhead.
+        /// </summary>
         public static GameObject CreateCanvas(string name, Transform parent, Vector2 size, float scale)
         {
-            var root = new GameObject(name, typeof(RectTransform), typeof(Canvas), typeof(GraphicRaycaster));
+            var root = new GameObject(name, typeof(RectTransform), typeof(Canvas));
             root.transform.SetParent(parent, false);
             var canvas = root.GetComponent<Canvas>();
             canvas.renderMode = RenderMode.WorldSpace;
@@ -44,6 +49,52 @@ namespace NavigationSim.UnityLayer.UI
             rt.sizeDelta = size;
             root.transform.localScale = Vector3.one * scale;
             return root;
+        }
+
+        /// <summary>
+        /// Nested canvas for the readouts that are retyped every refresh. A Canvas
+        /// component scopes UI rebuilds to its own subtree, so changing a label no
+        /// longer re-batches the panel background and its dozen buttons.
+        /// </summary>
+        public static RectTransform SubCanvas(RectTransform parent, string name, Vector2 size)
+        {
+            var go = new GameObject(name, typeof(RectTransform), typeof(Canvas));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0f, 1f);
+            rt.anchorMax = new Vector2(0f, 1f);
+            rt.pivot = new Vector2(0f, 1f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = size;
+            return rt;
+        }
+
+        /// <summary>
+        /// A line from the centre of <paramref name="parent"/> outwards, pivoted at its
+        /// base so <see cref="PointRadial"/> can aim it. Rotating a quad is free and runs
+        /// at frame rate; rasterising the same line into a texture is neither.
+        /// </summary>
+        public static Image Radial(RectTransform parent, string name, float length, float width, Color color)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rt = go.GetComponent<RectTransform>();
+            rt.anchorMin = new Vector2(0.5f, 0.5f);
+            rt.anchorMax = new Vector2(0.5f, 0.5f);
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = Vector2.zero;
+            rt.sizeDelta = new Vector2(width, length);
+            var img = go.AddComponent<Image>();
+            img.color = color;
+            img.sprite = WhiteSprite;
+            img.raycastTarget = false;
+            return img;
+        }
+
+        /// <summary>Aims a <see cref="Radial"/> at a PPI screen bearing (0 = up, clockwise).</summary>
+        public static void PointRadial(Image radial, double screenBearingDeg)
+        {
+            radial.rectTransform.localRotation = Quaternion.Euler(0f, 0f, (float)-screenBearingDeg);
         }
 
         public static void PlaceInFront(Transform canvasRoot, float distance, float lateral, float lift)

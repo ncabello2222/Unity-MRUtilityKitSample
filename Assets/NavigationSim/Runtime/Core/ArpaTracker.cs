@@ -26,6 +26,16 @@ namespace NavigationSim.Core
     {
         private readonly List<ArpaTrack> _tracks = new List<ArpaTrack>();
 
+        /// <summary>
+        /// Track objects, reused across updates. <see cref="_tracks"/> gets sorted and
+        /// the pool does not, so the two can hold the same references in different
+        /// orders without the pool losing track of which objects are already built.
+        /// Callers must read a track within the update that produced it — which every
+        /// caller does, since they all render from the current state.
+        /// </summary>
+        private readonly List<ArpaTrack> _pool = new List<ArpaTrack>();
+        private int _poolUsed;
+
         public IReadOnlyList<ArpaTrack> Tracks => _tracks;
         public bool Enabled = true;
         public bool TrueVectors = true;
@@ -39,6 +49,7 @@ namespace NavigationSim.Core
         public void Update(ShipState own, TrafficWorld traffic)
         {
             _tracks.Clear();
+            _poolUsed = 0;
             if (!Enabled || own == null || traffic == null)
             {
                 return;
@@ -87,20 +98,19 @@ namespace NavigationSim.Core
 
                 double relCourse = ShipState.Normalize360(Math.Atan2(relVe, relVn) * 180.0 / Math.PI);
 
-                var track = new ArpaTrack
-                {
-                    ContactId = c.Id,
-                    Name = c.Name,
-                    RangeNm = rangeM / 1852.0,
-                    BearingDeg = bearingDeg,
-                    CourseDeg = c.HeadingDeg,
-                    SpeedKn = c.SogKn,
-                    CpaNm = cpaM / 1852.0,
-                    TcpaMin = tcpaS / 60.0,
-                    RelCourseDeg = relCourse,
-                    RelSpeedKn = relSpeed * 1.94384449244,
-                    Dangerous = cpaM < 926.0 && tcpaS > 0.0 && tcpaS < 1800.0 // under 0.5 Nm and 30 min
-                };
+                ArpaTrack track = Rent();
+                track.ContactId = c.Id;
+                track.Name = c.Name;
+                track.RangeNm = rangeM / 1852.0;
+                track.BearingDeg = bearingDeg;
+                track.CourseDeg = c.HeadingDeg;
+                track.SpeedKn = c.SogKn;
+                track.CpaNm = cpaM / 1852.0;
+                track.TcpaMin = tcpaS / 60.0;
+                track.RelCourseDeg = relCourse;
+                track.RelSpeedKn = relSpeed * 1.94384449244;
+                // Under 0.5 Nm and 30 min.
+                track.Dangerous = cpaM < 926.0 && tcpaS > 0.0 && tcpaS < 1800.0;
                 _tracks.Add(track);
             }
 
@@ -111,6 +121,16 @@ namespace NavigationSim.Core
             // and List.Sort throws InvalidOperationException when it detects the cycle.
             // One key per track keeps it a genuine ordering.
             _tracks.Sort(CompareByThreat);
+        }
+
+        private ArpaTrack Rent()
+        {
+            if (_poolUsed == _pool.Count)
+            {
+                _pool.Add(new ArpaTrack());
+            }
+
+            return _pool[_poolUsed++];
         }
 
         /// <summary>
