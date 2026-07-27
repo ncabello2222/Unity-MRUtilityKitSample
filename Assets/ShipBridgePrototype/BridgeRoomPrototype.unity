@@ -2627,6 +2627,7 @@ MonoBehaviour:
   shipPivot: {fileID: 0}
   seakeepingVisualGain: 1
   applySeakeepingAttitudeToExterior: 0
+  scenarioSeaLevelLocalY: -14.5
 --- !u!114 &2051625789
 MonoBehaviour:
   m_ObjectHideFlags: 0

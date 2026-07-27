@@ -42,11 +42,10 @@ namespace NavigationSim.UnityLayer
 
         [SerializeField] private Material oceanMaterial;
         [SerializeField] private bool hideScenarioWaterPlanes = true;
-        [Tooltip("Ocean surface Y relative to ShipMotionPivot. Bridge floor≈0; hull deck≈-BridgeHeight; waterline a few meters below deck.")]
+        [Tooltip("Manual override for the ocean surface Y relative to ShipMotionPivot, used only when autoWaterlineFromHull is off. Bridge floor≈0, so this is negative.")]
         [SerializeField] private float waterLevelOffsetY = -14f;
-        [Tooltip("When true, waterline tracks the active vessel (deck height + freeboard).")]
+        [Tooltip("When true, the waterline comes from ExteriorWorldMotion (vessel deck height + freeboard), the same datum the coastline is hung from.")]
         [SerializeField] private bool autoWaterlineFromHull = true;
-        [SerializeField] private float freeboardBelowDeckM = 2.5f;
         [Tooltip("Auto = 64 on Quest, 128 on PC. High keeps 128 everywhere.")]
         [SerializeField] private OceanQualityMode oceanQuality = OceanQualityMode.Auto;
         [Tooltip("iFFT update rate. Viewer stays at the XR refresh rate; textures are reused between ticks.")]
@@ -597,25 +596,28 @@ namespace NavigationSim.UnityLayer
                 return waterLevelOffsetY;
             }
 
+            // ExteriorWorldMotion owns the waterline: it shifts the whole exterior so the
+            // scenario's sea datum lands at the vessel's eye height. Reading the same
+            // number here is what keeps the ocean plane and the coastline from parting
+            // company when the vessel changes.
+            if (_motion != null)
+            {
+                return -_motion.BridgeAboveSeaM;
+            }
+
             var presenter = VesselHullPresenter.Instance;
             if (presenter == null)
             {
                 presenter = FindAnyObjectByType<VesselHullPresenter>();
             }
 
-            if (presenter == null)
-            {
-                return waterLevelOffsetY;
-            }
-
-            var def = presenter.ActiveDefinition;
+            var def = presenter != null ? presenter.ActiveDefinition : null;
             if (def == null)
             {
                 return waterLevelOffsetY;
             }
 
-            // Deck sits at -BridgeHeightAboveDeckM; put mean sea level a bit below deck.
-            return -def.BridgeHeightAboveDeckM - Mathf.Max(0.5f, freeboardBelowDeckM);
+            return -def.BridgeAboveSeaM;
         }
 
         private void OnBeginContextRendering(ScriptableRenderContext context, List<Camera> cameras)

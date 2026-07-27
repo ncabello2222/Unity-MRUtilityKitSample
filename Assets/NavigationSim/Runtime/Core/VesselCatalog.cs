@@ -13,6 +13,14 @@ namespace NavigationSim.Core
         public string HullResourcePath;
         /// <summary>Bridge floor height above the visual deck [m].</summary>
         public float BridgeHeightAboveDeckM;
+        /// <summary>Deck height above the waterline [m]; sets the eye height at the bridge.</summary>
+        public float FreeboardBelowDeckM = 2.5f;
+        /// <summary>
+        /// Height of the bridge floor (the fixed room) above mean sea level [m]. The whole
+        /// exterior — coastline and ocean together — hangs from this, so switching vessels
+        /// raises the observer rather than moving the sea relative to the land.
+        /// </summary>
+        public float BridgeAboveSeaM => BridgeHeightAboveDeckM + Math.Max(0.5f, FreeboardBelowDeckM);
         /// <summary>How far ahead of the room pivot the hull attach point sits [m].</summary>
         public float HullForwardFromPivotM;
         /// <summary>

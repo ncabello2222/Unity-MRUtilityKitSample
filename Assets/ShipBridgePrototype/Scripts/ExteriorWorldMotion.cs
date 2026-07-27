@@ -29,12 +29,22 @@ namespace ShipBridgePrototype
             "should physically tilt.")]
         [SerializeField] private bool applySeakeepingAttitudeToExterior = false;
 
+        [Header("Sea datum")]
+        [Tooltip(
+            "Where the loaded scenario puts mean sea level, in ExteriorWorld local Y. The " +
+            "whole exterior is shifted so this lands at the active vessel's eye height, " +
+            "which keeps the coastline's draught constant across vessel changes.")]
+        [SerializeField] private float scenarioSeaLevelLocalY = -14.5f;
+
         private Vector3 _initialExteriorPosition;
         private Quaternion _initialExteriorRotation = Quaternion.identity;
         private bool _hasInitialPose;
         private Vector3 _initialPivotPosition;
         private Quaternion _shipForwardBasis = Quaternion.identity;
         private float _simOriginForwardM;
+        private float _bridgeAboveSeaM = 14.5f;
+        /// <summary>Sea datum currently baked into ExteriorWorld.Root by the last apply.</summary>
+        private float _appliedDatumY;
 
         public ExteriorWorldRoot ExteriorWorld => exteriorWorld;
         public Transform ShipPivot => shipPivot;
@@ -50,6 +60,23 @@ namespace ShipBridgePrototype
         /// </summary>
         public Vector3 SimOriginInitialPosition =>
             _initialPivotPosition + _shipForwardBasis * new Vector3(0f, 0f, _simOriginForwardM);
+
+        /// <summary>
+        /// Height of the bridge floor above mean sea level for the active vessel [m].
+        /// Single source of truth for the waterline: the ocean adapter reads it too, so
+        /// the sea and the coastline can never drift apart.
+        /// </summary>
+        public float BridgeAboveSeaM => _bridgeAboveSeaM;
+
+        /// <summary>
+        /// Static vertical offset applied to the whole exterior so the scenario's sea
+        /// datum lands at the active vessel's eye height. Lowering only the ocean instead
+        /// (the previous behaviour) changed the sea level relative to the coast every time
+        /// the vessel changed, beaching or flooding the islands by the bridge-height
+        /// difference. This is a datum, not motion: it stays out of the geo↔world maps,
+        /// which are only ever used for horizontal sampling.
+        /// </summary>
+        public float SeaDatumShiftY => -_bridgeAboveSeaM - scenarioSeaLevelLocalY;
 
         private void Awake()
         {
@@ -94,7 +121,9 @@ namespace ShipBridgePrototype
 
             // Vessel switches call ResetShip(), so the anchor jump happens while the
             // relative transform is identity and the exterior never pops.
-            _simOriginForwardM = VesselCatalog.Get(runner.ActiveVesselIndex).SimOriginForwardFromBridgeM;
+            var def = VesselCatalog.Get(runner.ActiveVesselIndex);
+            _simOriginForwardM = def.SimOriginForwardFromBridgeM;
+            _bridgeAboveSeaM = def.BridgeAboveSeaM;
         }
 
         /// <summary>Called by BridgeRoomMapper after exterior generation.</summary>
@@ -150,12 +179,14 @@ namespace ShipBridgePrototype
             }
 
             // Keep virtual ship progress; bake E0 so S0*S^-1*E0 == current exterior.
-            // E0 = S * S0^-1 * E_current.
+            // E0 = S * S0^-1 * E_current. The sea datum is added back on every frame, so
+            // strip it here or it would compound each time a scenario is swapped.
             ResolveShipPose(out var shipPos, out var shipRot);
             var root = exteriorWorld.Root;
+            var rootPos = root.position - Vector3.up * _appliedDatumY;
             var invShip0 = Quaternion.Inverse(_shipForwardBasis);
             _initialExteriorPosition =
-                shipPos + shipRot * (invShip0 * (root.position - SimOriginInitialPosition));
+                shipPos + shipRot * (invShip0 * (rootPos - SimOriginInitialPosition));
             _initialExteriorRotation = shipRot * invShip0 * root.rotation;
         }
 
@@ -184,7 +215,10 @@ namespace ShipBridgePrototype
         {
             var pivotPos = shipPivot != null ? shipPivot.position : exteriorWorld.MotionPivot.position;
             _initialPivotPosition = pivotPos;
-            _initialExteriorPosition = exteriorWorld.Root.position;
+            // Store the undatumed pose; ApplyInverseExteriorPose re-adds the datum every
+            // frame. Subtracting what is actually baked in (zero before the first apply,
+            // the live datum afterwards) keeps a re-capture from compounding it.
+            _initialExteriorPosition = exteriorWorld.Root.position - Vector3.up * _appliedDatumY;
             _initialExteriorRotation = exteriorWorld.Root.rotation;
             _hasInitialPose = true;
 
@@ -242,10 +276,13 @@ namespace ShipBridgePrototype
             var shipRot0 = _shipForwardBasis;
             var invShip = Quaternion.Inverse(shipRot);
 
-            var newPos = shipPos0 + shipRot0 * (invShip * (_initialExteriorPosition - shipPos));
+            float datumY = SeaDatumShiftY;
+            var newPos = shipPos0 + shipRot0 * (invShip * (_initialExteriorPosition - shipPos))
+                         + Vector3.up * datumY;
             var newRot = shipRot0 * invShip * _initialExteriorRotation;
 
             exteriorWorld.Root.SetPositionAndRotation(newPos, newRot);
+            _appliedDatumY = datumY;
         }
 
         /// <summary>
