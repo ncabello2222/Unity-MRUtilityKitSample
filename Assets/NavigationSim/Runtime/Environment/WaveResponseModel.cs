@@ -48,7 +48,11 @@ namespace NavigationSim.Core
         private void UpdateFromSurface(EnvironmentState env, ShipState state,
             double shipLength, double shipBeam, double dt)
         {
-            if (env.WaveHeightM < 0.01 || env.WavePeriodS < 1.0)
+            // No Hs gate here: the surface IS the sea state. The visual ocean is now
+            // amplitude-trimmed to Hs, so a flat-calm order arrives as a flat field and
+            // the filters below decay on their own. Gating on Hs instead let the ship sit
+            // dead still under a rendered swell whenever the two channels disagreed.
+            if (env.WavePeriodS < 1.0)
             {
                 Decay(dt);
                 return;
@@ -109,7 +113,10 @@ namespace NavigationSim.Core
             StepMassSpring(ref _pitchDeg, ref _pitchVel, pitchTarget, pitchWn, 0.50, dt);
             StepMassSpring(ref _rollDeg, ref _rollVel, rollTarget, rollWn, 0.35, dt);
 
-            _heave = Clamp(_heave, -env.WaveHeightM, env.WaveHeightM);
+            // Safety rails only. Clamping heave to ±Hs used to cap the response below what
+            // the surface the ship is standing on actually does — the sea could wash over
+            // the deck while the hull refused to rise with it.
+            _heave = Clamp(_heave, -20.0, 20.0);
             _pitchDeg = Clamp(_pitchDeg, -18.0, 18.0);
             _rollDeg = Clamp(_rollDeg, -25.0, 25.0);
         }

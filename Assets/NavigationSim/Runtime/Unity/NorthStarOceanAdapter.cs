@@ -80,6 +80,10 @@ namespace NavigationSim.UnityLayer
         private float _simulationAccumulator;
         private bool _seakeepingSurfaceAssigned;
         private bool _lastUseSurfaceSampling;
+        // Matches EnvironmentState's default Hs so the sea is not a mirror in the window
+        // between spawn and the first SyncSeaState.
+        private float _targetHsM = 0.5f;
+        private float _amplitudeScale = 1f;
 
         public static NorthStarOceanAdapter Instance { get; private set; }
 
@@ -447,7 +451,40 @@ namespace NavigationSim.UnityLayer
                 _oceanSimulation.Profile = _profile;
             }
 
+            SyncWaveAmplitude();
             _oceanSimulation.UpdateSimulation(BuildWindVector());
+        }
+
+        /// <summary>
+        /// Makes the rendered field show the ordered Hs. The Phillips normalization in
+        /// the North Star spectrum is a look constant, not a calibrated sea state, so the
+        /// only honest way to hit Hs is to measure what the field produced and scale it.
+        /// The surface is linear in the scale, so one measurement inverts it exactly —
+        /// this is a one-shot solve, not a servo, and it re-solves only when the spectrum
+        /// changes enough to move the measurement.
+        /// </summary>
+        private void SyncWaveAmplitude()
+        {
+            if (_targetHsM < 0.01f)
+            {
+                // Flat calm ordered: a mirror, matching WaveResponseModel decaying to zero.
+                _oceanSimulation.Amplitude = 0f;
+                return;
+            }
+
+            float unitHs = _oceanSimulation.UnitWaveHeightM;
+            if (unitHs > 1e-4f)
+            {
+                _amplitudeScale = Mathf.Clamp(_targetHsM / unitHs, 1e-3f, 1e3f);
+            }
+
+            // Rewriting Amplitude invalidates the spectrum, so only move it when the
+            // measurement says we are off by more than a couple of percent.
+            float current = _oceanSimulation.Amplitude;
+            if (current <= 0f || Mathf.Abs(_amplitudeScale - current) > current * 0.02f)
+            {
+                _oceanSimulation.Amplitude = _amplitudeScale;
+            }
         }
 
         private Vector3 BuildWindVector()
@@ -471,6 +508,7 @@ namespace NavigationSim.UnityLayer
             var drive = OceanSeaStateMapper.FromEnvironment(env);
             _driveWindSpeed = drive.WindSpeedMs;
             _driveFromDeg = drive.WindFromDeg;
+            _targetHsM = drive.TargetHsM;
 
             var settings = _profile.OceanSettings;
             bool changed = !Mathf.Approximately(settings.WindSpeed, drive.WindSpeedMs)

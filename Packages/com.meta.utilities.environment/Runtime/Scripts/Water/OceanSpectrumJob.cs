@@ -18,6 +18,7 @@ namespace Meta.Utilities.Environment
     public struct OceanSpectrumJob : IJobParallelFor
     {
         private float m_directionality, m_gravity, m_windSpeed, m_minWaveLength, m_patchSize, m_sequenceLength;
+        private float m_amplitude;
         private int m_resolution;
         private float2 m_windDirection;
 
@@ -27,7 +28,7 @@ namespace Meta.Utilities.Environment
         [WriteOnly]
         private NativeArray<float4> m_spectrum;
 
-        public OceanSpectrumJob(float directionality, float gravity, float windSpeed, float minWaveLength, float patchSize, float sequenceLength, int resolution, float2 windDirection, NativeArray<float> dispersionTable, NativeArray<float4> spectrum)
+        public OceanSpectrumJob(float directionality, float gravity, float windSpeed, float minWaveLength, float patchSize, float sequenceLength, int resolution, float2 windDirection, NativeArray<float> dispersionTable, NativeArray<float4> spectrum, float amplitude = 1.0f)
         {
             m_directionality = directionality;
             m_gravity = gravity;
@@ -39,6 +40,7 @@ namespace Meta.Utilities.Environment
             m_windDirection = windDirection;
             m_dispersionTable = dispersionTable;
             m_spectrum = spectrum;
+            m_amplitude = amplitude;
         }
 
         private readonly float PhillipsSpectrum(float2 k, float kLength)
@@ -61,7 +63,11 @@ namespace Meta.Utilities.Environment
             if (kdotw < 0.0f)
                 phillips *= -sqrt(1.0f - m_directionality);
 
-            return phillips;
+            // Linear amplitude trim. The Phillips constant above is a fixed rendering
+            // normalization, so the field it produces has no calibrated Hs. Callers that
+            // must hit a prescribed significant wave height scale the whole spectrum here
+            // (the surface is linear in this factor, so one measurement inverts it).
+            return phillips * m_amplitude;
         }
 
         void IJobParallelFor.Execute(int index)

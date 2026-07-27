@@ -51,6 +51,22 @@ namespace Meta.Utilities.Environment
         public Vector2 FieldOffset { get; set; }
 
         /// <summary>
+        /// Linear scale applied to the whole spectrum. The stock Phillips normalization
+        /// is a rendering constant with no calibrated significant wave height, so a sim
+        /// that must show a prescribed Hs drives this instead of faking it with wind
+        /// speed (which would also move the peak wavelength). 1 = stock North Star look.
+        /// </summary>
+        public float Amplitude { get; set; } = 1.0f;
+
+        /// <summary>
+        /// Significant wave height (4 sigma) the current spectrum would produce at
+        /// <see cref="Amplitude"/> = 1, measured from the last completed iFFT. The surface
+        /// is linear in Amplitude, so <c>Amplitude = targetHs / UnitWaveHeightM</c> lands
+        /// on the target in a single update. Zero until the first field is measured.
+        /// </summary>
+        public float UnitWaveHeightM { get; private set; }
+
+        /// <summary>
         /// Seconds to evaluate the dispersion at. The ship bridge sim runs on fast
         /// time, and Time.time would leave the sea evolving at 1x while the ship runs
         /// at Nx. Drive it with an accumulated clock rather than a scaled absolute one
@@ -67,6 +83,8 @@ namespace Meta.Utilities.Environment
         private int m_cachedSettingsVersion = -1;
         private EnvironmentProfile m_cachedProfile;
         private Vector3 m_cachedWindVector;
+        private float m_cachedAmplitude = float.NaN;
+        private float m_appliedAmplitude = 1.0f;
 
         private NativeArray<float> m_lengthToRoughness;
 
@@ -210,20 +228,24 @@ namespace Meta.Utilities.Environment
             // In editor, force a recalculation when parameters are changed, as automation recalculations may be disabled as they cause crashes
             var forceUpdate = false;
 
-            // Recalculate spectrum if profile, patch size or resolution has changed
-            if (m_cachedSettingsVersion != Profile.Version || resolutionChanged || m_cachedProfile != Profile || m_cachedWindVector != windVector)
+            // Recalculate spectrum if profile, patch size, resolution or amplitude has changed
+            if (m_cachedSettingsVersion != Profile.Version || resolutionChanged || m_cachedProfile != Profile || m_cachedWindVector != windVector || m_cachedAmplitude != Amplitude)
             {
                 var horizontalWindVector = Vector3.ProjectOnPlane(windVector, Vector3.up);
                 var windSpeed = horizontalWindVector.magnitude;
                 var windDirection = new Vector2(horizontalWindVector.x, horizontalWindVector.z).normalized;
 
-                var spectrumJob = new OceanSpectrumJob(Profile.OceanSettings.Directionality, Profile.OceanSettings.Gravity, windSpeed, Profile.OceanSettings.MinWaveSize, Profile.OceanSettings.PatchSize, Profile.OceanSettings.SequenceLength, m_resolution, windDirection, m_dispersionTable, m_spectrum);
+                var spectrumJob = new OceanSpectrumJob(Profile.OceanSettings.Directionality, Profile.OceanSettings.Gravity, windSpeed, Profile.OceanSettings.MinWaveSize, Profile.OceanSettings.PatchSize, Profile.OceanSettings.SequenceLength, m_resolution, windDirection, m_dispersionTable, m_spectrum, Amplitude);
                 m_jobHandle = spectrumJob.Schedule(m_resolution * m_resolution, 64, m_jobHandle);
                 m_cachedSettingsVersion = Profile.Version;
                 m_cachedProfile = Profile;
                 m_cachedWindVector = windVector;
+                m_cachedAmplitude = Amplitude;
                 forceUpdate = true;
             }
+
+            // Whatever the field about to be built measures, it was built with this.
+            m_appliedAmplitude = Amplitude;
 
             // Don't recalculate if editor updates are disabled and no chages have been made to avoid crasehes
             if (!forceUpdate && !Application.isPlaying && !m_enableEditorUpdates)
@@ -310,9 +332,36 @@ namespace Meta.Utilities.Environment
                 m_jobHandle.Complete();
                 DisplacementMap.Apply();
                 NormalMap.Apply(false, false);
+                MeasureUnitWaveHeight();
 
                 m_hasPendingJobs = false;
             }
+        }
+
+        /// <summary>
+        /// Hs = 4 sigma over the elevation channel of the field that just finished,
+        /// divided back out by the amplitude it was built with. Runs once per completed
+        /// iFFT over data already resident on the main thread (4k-16k floats).
+        /// </summary>
+        private void MeasureUnitWaveHeight()
+        {
+            if (m_appliedAmplitude <= 1e-6f || !m_displacementResult.IsCreated)
+            {
+                // A flat sea carries no information about the spectrum's unit height;
+                // keep the last valid measurement so raising Hs again lands correctly.
+                return;
+            }
+
+            var count = m_displacementResult.Length;
+            var sumSq = 0.0;
+            for (var i = 0; i < count; i++)
+            {
+                var h = m_displacementResult[i].y;
+                sumSq += (double)h * h;
+            }
+
+            var rms = Mathf.Sqrt((float)(sumSq / count));
+            UnitWaveHeightM = 4.0f * rms / m_appliedAmplitude;
         }
 
         private int BitReverse(int i)
