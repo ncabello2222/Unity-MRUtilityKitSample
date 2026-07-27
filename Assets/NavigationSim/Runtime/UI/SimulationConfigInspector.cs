@@ -113,7 +113,9 @@ namespace NavigationSim.UnityLayer.UI
         [Range(4f, 30f)]
         [SerializeField] private float periodoBalanceS = 12f;
         [SerializeField] private float profundidadM = 60f;
+        [SerializeField] private float mareaM = 1.2f;
         [SerializeField] private float densidadAgua = 1025f;
+        [SerializeField] private bool nmeaUdpOut;
 
         // ── INSTRUMENTOS (solo lectura) ──────────────────────────────────────
         [Header("Instrumentos (live)")]
@@ -265,7 +267,9 @@ namespace NavigationSim.UnityLayer.UI
             dirOleajeDesdeDeg = (float)env.WaveFromDeg;
             periodoBalanceS = (float)env.RollNaturalPeriodS;
             profundidadM = (float)env.WaterDepthM;
+            mareaM = (float)env.TideHeightM;
             densidadAgua = (float)env.WaterDensity;
+            nmeaUdpOut = _runner.Nmea != null && _runner.Nmea.Enabled;
 
             CaptureAppliedFromInspector();
         }
@@ -356,7 +360,12 @@ namespace NavigationSim.UnityLayer.UI
             env.WaveFromDeg = ShipState.Normalize360(dirOleajeDesdeDeg);
             env.RollNaturalPeriodS = periodoBalanceS;
             env.WaterDepthM = profundidadM;
+            env.TideHeightM = mareaM;
             env.WaterDensity = densidadAgua;
+            if (_runner.Nmea != null)
+            {
+                _runner.Nmea.Enabled = nmeaUdpOut;
+            }
 
             if (propStructural || force || vesselChanged)
             {

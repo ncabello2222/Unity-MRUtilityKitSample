@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using NavigationSim.Core;
 using ShipBridgePrototype;
 using UnityEngine;
@@ -11,6 +12,7 @@ namespace NavigationSim.UnityLayer
     /// The ship never moves in Unity: consumers apply the inverse transform.
     /// Visual ocean phase is driven by <see cref="NorthStarOceanAdapter"/>.
     /// </summary>
+    [DefaultExecutionOrder(-100)]
     public class NavigationSimRunner : MonoBehaviour
     {
         public const double FixedStep = ShipSimulator.DefaultDt;
@@ -20,6 +22,27 @@ namespace NavigationSim.UnityLayer
         public ShipSimulator Sim { get; private set; }
         public VesselConfig Config { get; private set; }
         public EnvironmentState Env { get; private set; }
+        public GeoDatum Geo { get; private set; }
+        public TrafficWorld Traffic { get; private set; }
+        public RadarModel Radar { get; private set; }
+        public ArpaTracker Arpa { get; private set; }
+        public NmeaOutput Nmea { get; private set; }
+
+        /// <summary>
+        /// Coastline echoes for radar and chart, in geographic East/North. Published by
+        /// the scenario loader from the scenery that is actually drawn — see
+        /// <c>ScenarioLandmassSampler</c>. Empty until a scenario is loaded, which is
+        /// honest: an empty radar beats one painting land that is not there.
+        /// </summary>
+        public IReadOnlyList<(double north, double east)> LandSamples { get; private set; }
+            = new List<(double north, double east)>();
+
+        /// <summary>Called by the exterior scenario loader after swapping scenery.</summary>
+        public void SetLandSamples(IReadOnlyList<(double north, double east)> samples)
+        {
+            LandSamples = samples ?? new List<(double north, double east)>();
+        }
+
         public string ActiveVesselId { get; private set; } = VesselCatalog.All[0].Id;
         public int ActiveVesselIndex => VesselCatalog.IndexOf(ActiveVesselId);
 
@@ -76,6 +99,12 @@ namespace NavigationSim.UnityLayer
             Instance = this;
 
             Env = new EnvironmentState();
+            Geo = GeoDatum.DefaultCoastal;
+            Traffic = new TrafficWorld();
+            Traffic.LoadCoastalDemo();
+            Radar = new RadarModel();
+            Arpa = new ArpaTracker();
+            Nmea = new NmeaOutput();
             // Default to the nimble coaster so pushing the telegraph and turning the
             // wheel produce immediately perceptible world motion. Other Blender hulls
             // (and the calibrated KVLCC2) are selectable from the B panel.
@@ -91,6 +120,7 @@ namespace NavigationSim.UnityLayer
 
         private void OnDestroy()
         {
+            Nmea?.Dispose();
             if (Instance == this)
             {
                 Instance = null;
@@ -114,10 +144,17 @@ namespace NavigationSim.UnityLayer
                 _prevPitch = _currPitch;
 
                 Sim.Step(FixedStep);
+                Traffic.Step(FixedStep);
                 SnapshotState();
                 _accumulator -= FixedStep;
             }
 
+            Radar.UpdateEchoes(Sim.State, Traffic, LandSamples);
+            Arpa.Update(Sim.State, Traffic);
+            // Wall-clock, not sim time: a plotter on the other end wants one fix a second
+            // however fast the exercise is running. Feeding it scaled time made x60 emit
+            // sixty sentences per real second and swamp the listener.
+            Nmea.Update(Time.deltaTime, Sim.State, Geo);
             PushActualRudderToBridge();
         }
 

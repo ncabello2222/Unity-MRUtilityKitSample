@@ -155,8 +155,29 @@ namespace ShipBridgePrototype
 
             NorthStarOceanAdapter.EnsureInstance().NotifyExteriorChanged();
 
+            // After NotifyExteriorChanged: it disables the scenario's water planes, and
+            // the sampler skips inactive renderers, so water never registers as land.
+            PublishLandSamples();
+
             Debug.Log($"[ExteriorScenarioLoader] Loaded scenario [{index}] '{CurrentId}'.");
             return true;
+        }
+
+        /// <summary>
+        /// Hands radar and chart the coastline of the scenery now on screen.
+        /// </summary>
+        private void PublishLandSamples()
+        {
+            var runner = NavigationSimRunner.Instance;
+            if (runner == null || _currentInstance == null || exteriorWorld == null)
+            {
+                return;
+            }
+
+            var samples = ScenarioLandmassSampler.Sample(
+                _currentInstance.transform, exteriorWorld.Root);
+            runner.SetLandSamples(samples);
+            Debug.Log($"[ExteriorScenarioLoader] Published {samples.Count} land samples for radar/chart.");
         }
 
         private void ResolveRefs()

@@ -466,6 +466,10 @@ HAND/NFU/AUTO, `HeadingAutopilot` (PID + modelo de referencia de PVS), fallos de
 panel de instructor, otros buques (`OtherShipPresenter` con Clarke83 o cinemática simple).
 **Aceptación**: zigzag 20/20 estable en AUTO; cambio HAND↔AUTO sin saltos de timón.
 
+### Instrumentos de puente (referencia Bridge Command)
+Ver [INSTRUMENTOS_PUENTE.md](INSTRUMENTOS_PUENTE.md): GeoDatum, TrafficWorld, chart-lite,
+radar PPI + EBL/VRM + ARPA, AIS, demora visual, NMEA UDP. Sin copiar código GPL-2 de BC.
+
 ---
 
 ## 14. Riesgos y mitigaciones

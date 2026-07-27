@@ -25,6 +25,9 @@ namespace NavigationSim.Core
         public double AirDensity = 1.224;
         public double WaterDepthM = 60.0;
 
+        /// <summary>Tide height above chart datum [m]. Display-only for instruments.</summary>
+        public double TideHeightM = 1.2;
+
         /// <summary>Natural roll period of the vessel [s], used by the visual wave response.</summary>
         public double RollNaturalPeriodS = 12.0;
     }

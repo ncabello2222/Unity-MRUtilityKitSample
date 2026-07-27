@@ -45,6 +45,33 @@ namespace NavigationSim.UnityLayer
                 runner.gameObject.AddComponent<NorthStarOceanAdapter>();
             }
 
+            if (runner.GetComponent<UI.BridgeChartDisplay>() == null)
+            {
+                runner.gameObject.AddComponent<UI.BridgeChartDisplay>();
+            }
+
+            if (runner.GetComponent<UI.BridgeRadarDisplay>() == null)
+            {
+                runner.gameObject.AddComponent<UI.BridgeRadarDisplay>();
+            }
+
+            if (runner.GetComponent<UI.BridgeAisDisplay>() == null)
+            {
+                runner.gameObject.AddComponent<UI.BridgeAisDisplay>();
+            }
+
+            if (runner.GetComponent<UI.VisualBearingOverlay>() == null)
+            {
+                runner.gameObject.AddComponent<UI.VisualBearingOverlay>();
+            }
+
+            if (runner.GetComponent<UI.BridgeInstrumentsMenu>() == null)
+            {
+                runner.gameObject.AddComponent<UI.BridgeInstrumentsMenu>();
+            }
+
+            OtherShipPresenter.EnsureInstance();
+
             var systems = GameObject.Find("ShipBridgeSystems");
             if (systems == null)
             {

@@ -9,7 +9,7 @@ namespace NavigationSim.UnityLayer.UI
     /// Laser pointer for sim world-space canvases: raycasts from the right
     /// controller (or camera/mouse in the editor) against SimUiButton colliders
     /// and drives hover/press/release with the index trigger or mouse button.
-    /// Active while the config panel or conning display is open.
+    /// Active while any interactive sim panel (config, instruments menu, etc.) is open.
     /// </summary>
     public class VrUiPointer : MonoBehaviour
     {
@@ -17,6 +17,10 @@ namespace NavigationSim.UnityLayer.UI
 
         private SimulationConfigPanel _configPanel;
         private BridgeConningDisplay _conningDisplay;
+        private BridgeInstrumentsMenu _instrumentsMenu;
+        private BridgeChartDisplay _chartDisplay;
+        private BridgeRadarDisplay _radarDisplay;
+        private BridgeAisDisplay _aisDisplay;
         private OVRCameraRig _rig;
         private LineRenderer _line;
         private SimUiButton _hovered;
@@ -24,8 +28,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private void Awake()
         {
-            _configPanel = GetComponent<SimulationConfigPanel>();
-            _conningDisplay = GetComponent<BridgeConningDisplay>();
+            CachePanels();
 
             var lineGo = new GameObject("SimUiPointerLine");
             lineGo.transform.SetParent(transform, false);
@@ -45,24 +48,36 @@ namespace NavigationSim.UnityLayer.UI
             _line.enabled = false;
         }
 
+        private void CachePanels()
+        {
+            _configPanel ??= GetComponent<SimulationConfigPanel>();
+            _conningDisplay ??= GetComponent<BridgeConningDisplay>();
+            _instrumentsMenu ??= GetComponent<BridgeInstrumentsMenu>();
+            _chartDisplay ??= GetComponent<BridgeChartDisplay>();
+            _radarDisplay ??= GetComponent<BridgeRadarDisplay>();
+            _aisDisplay ??= GetComponent<BridgeAisDisplay>();
+        }
+
         private bool AnyPanelOpen
         {
             get
             {
-                if (_configPanel == null)
-                {
-                    _configPanel = GetComponent<SimulationConfigPanel>();
-                }
-
-                if (_conningDisplay == null)
-                {
-                    _conningDisplay = GetComponent<BridgeConningDisplay>();
-                }
-
-                return (_configPanel != null && _configPanel.IsOpen) ||
-                       (_conningDisplay != null && _conningDisplay.IsOpen);
+                CachePanels();
+                return IsOpen(_configPanel) ||
+                       IsOpen(_conningDisplay) ||
+                       IsOpen(_instrumentsMenu) ||
+                       IsOpen(_chartDisplay) ||
+                       IsOpen(_radarDisplay) ||
+                       IsOpen(_aisDisplay);
             }
         }
+
+        private static bool IsOpen(SimulationConfigPanel p) => p != null && p.IsOpen;
+        private static bool IsOpen(BridgeConningDisplay p) => p != null && p.IsOpen;
+        private static bool IsOpen(BridgeInstrumentsMenu p) => p != null && p.IsOpen;
+        private static bool IsOpen(BridgeChartDisplay p) => p != null && p.IsOpen;
+        private static bool IsOpen(BridgeRadarDisplay p) => p != null && p.IsOpen;
+        private static bool IsOpen(BridgeAisDisplay p) => p != null && p.IsOpen;
 
         private void Update()
         {

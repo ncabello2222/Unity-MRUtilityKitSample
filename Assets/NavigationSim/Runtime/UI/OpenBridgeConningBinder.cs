@@ -778,8 +778,6 @@ namespace NavigationSim.UnityLayer.UI
             _rot?.Set(state.RotDegPerMin, 1, "{0:+0.0;-0.0;0.0}");
             _wind?.Set(windKn, 1, "{0:0.0}");
             _current?.Set(currentKn, 1, "{0:0.0}");
-            _depth?.Set(env.WaterDepthM, 1, "{0:0.0}");
-
             _pitch?.Set(state.PitchDeg, 1, "{0:+0.0;-0.0;0.0}");
             _roll?.Set(state.RollDeg, 1, "{0:+0.0;-0.0;0.0}");
             _heave?.Set(state.HeaveM, 2, "{0:+0.00;-0.00;0.00}");
@@ -789,11 +787,22 @@ namespace NavigationSim.UnityLayer.UI
             _windSpeed?.Set(state.ApparentWindSpeedMs * MsToKnots, 1, "{0:0.0}");
             _windDirection?.Set(state.ApparentWindFromRelDeg, 0, "{0:000}");
 
-            _northPosition?.Set(state.North, 0, "N {0:+0;-0;0} m");
-            _eastPosition?.Set(state.East, 0, "E {0:+0;-0;0} m");
+            // GPS-style lat/lon from GeoDatum (placeholders in the design were already
+            // lat/lon). N/E metres stay available via the chart / config panel.
+            if (_runner.Geo != null)
+            {
+                _runner.Geo.ToLatLon(state.North, state.East, out double lat, out double lon);
+                _northPosition?.Set(GeoDatum.FormatLat(lat));
+                _eastPosition?.Set(GeoDatum.FormatLon(lon));
+            }
+            else
+            {
+                _northPosition?.Set(state.North, 0, "N {0:+0;-0;0} m");
+                _eastPosition?.Set(state.East, 0, "E {0:+0;-0;0} m");
+            }
 
             SetClock(Math.Max(0.0, state.TimeS));
-            _date?.Set("SIM TIME");
+            _date?.Set($"TIDE {env.TideHeightM:+0.00;-0.00;0.00} m");
             _steeringMode?.Set(SteeringModeLabel(_runner.Sim.Command.SteeringMode));
             _legCourse?.Set(_runner.Sim.Command.HeadingSetpointDeg, 0, "{0:000}");
 
@@ -814,6 +823,9 @@ namespace NavigationSim.UnityLayer.UI
             // Drift is |V_ground - V_water|, which for a uniform current is the current
             // itself — not |SOG - STW|, which collapses to ~0 whenever the set is abeam.
             _driftSpeed?.Set(currentKn, 1, "{0:0.0}");
+
+            // Depth instrument: keep metres, source label is "Depth" in the design.
+            _depth?.Set(env.WaterDepthM, 1, "{0:0.0}");
 
             RotateCompassGraphic(_headingGraphic, state.HeadingDeg);
             RotateCompassGraphic(_cogGraphic, state.CogDeg);

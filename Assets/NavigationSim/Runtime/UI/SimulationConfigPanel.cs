@@ -383,7 +383,18 @@ namespace NavigationSim.UnityLayer.UI
             AddValueRow("Periodo balance [s]", () => env.RollNaturalPeriodS,
                 v => env.RollNaturalPeriodS = v, 0.5, "F1", 4.0, 30.0);
             AddValueRow("Profundidad [m]", () => env.WaterDepthM, v => env.WaterDepthM = v, 5.0, "F0", 5.0, 2000.0);
+            AddValueRow("Marea [m] (chart datum)", () => env.TideHeightM, v => env.TideHeightM = v, 0.1, "F2", -2.0, 8.0);
             AddValueRow("Densidad agua [kg/m³]", () => env.WaterDensity, v => env.WaterDensity = v, 5.0, "F0", 995.0, 1035.0);
+            AddToggleRow("NMEA UDP → plotter (OpenCPN)",
+                () => _runner.Nmea != null && _runner.Nmea.Enabled,
+                v =>
+                {
+                    if (_runner.Nmea != null)
+                    {
+                        _runner.Nmea.Enabled = v;
+                    }
+                });
+            AddActionRow("Tráfico", "RECARGAR DEMO", () => _runner.Traffic?.LoadCoastalDemo());
         }
 
         private void BuildInstrumentsTab()
@@ -406,6 +417,16 @@ namespace NavigationSim.UnityLayer.UI
             string telegraph = bridge != null ? bridge.Telegraph.ToString() : "n/a";
             double orderRpm = cmd.TelegraphFraction * _runner.Config.Engine.RatedRps * 60.0;
 
+            string gps = "—";
+            if (_runner.Geo != null)
+            {
+                _runner.Geo.ToLatLon(s.North, s.East, out double lat, out double lon);
+                gps = $"{GeoDatum.FormatLat(lat)}  {GeoDatum.FormatLon(lon)}";
+            }
+
+            int contacts = _runner.Traffic?.Contacts.Count ?? 0;
+            string nmea = _runner.Nmea != null && _runner.Nmea.Enabled ? "ON" : "off";
+
             return
                 $"RUMBO {s.HeadingDeg,6:F1}°     ROT {s.RotDegPerMin,6:F1} °/min\n" +
                 $"SOG {s.SogMs * 1.9438,5:F1} kn   STW {s.StwMs * 1.9438,5:F1} kn   COG {s.CogDeg,5:F0}°\n" +
@@ -419,8 +440,10 @@ namespace NavigationSim.UnityLayer.UI
                 $"VIENTO {env.WindSpeedMs * 1.9438,4:F0} kn @ {env.WindFromDeg,3:F0}°   CORRIENTE {env.CurrentSpeedMs * 1.9438,4:F1} kn @ {env.CurrentSetToDeg,3:F0}°\n" +
                 $"OLAS Hs {env.WaveHeightM,4:F1} m  Tp {env.WavePeriodS,4:F1} s @ {env.WaveFromDeg,3:F0}°\n" +
                 $"HEAVE {s.HeaveM,5:F2} m   ROLL {s.RollDeg,5:F1}°   PITCH {s.PitchDeg,5:F1}°\n" +
+                $"GPS {gps}\n" +
                 $"POS N {s.North,8:F0} m   E {s.East,8:F0} m    t {s.TimeS,7:F0} s\n" +
-                $"TIEMPO ACELERADO ×{_runner.TimeScale:F0}   PROFUNDIDAD {env.WaterDepthM:F0} m   AGUA {env.WaterDensity:F0} kg/m³";
+                $"TIDE {env.TideHeightM:F2} m   PROF {env.WaterDepthM:F0} m   ×{_runner.TimeScale:F0}   NMEA {nmea}\n" +
+                $"TRÁFICO {contacts}   Quest: izq.X menú · izq.Y conning · der.B config · der.A panel";
         }
 
         // ─────────────────────────────────────────────────────────────────────

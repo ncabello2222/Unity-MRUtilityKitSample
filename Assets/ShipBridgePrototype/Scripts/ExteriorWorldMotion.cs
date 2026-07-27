@@ -11,6 +11,13 @@ namespace ShipBridgePrototype
     /// channel. The old arcade integrator was replaced by the MMG/Clarke core in
     /// <see cref="NavigationSimRunner"/>.
     /// </summary>
+    /// <remarks>
+    /// Runs after <see cref="NavigationSimRunner"/> (-100) so the exterior pose is built
+    /// from the same interpolated ship pose the ocean adapter reads in LateUpdate. With
+    /// both on the default order, Unity was free to run this first, leaving the terrain a
+    /// frame behind the water it is supposed to be locked to.
+    /// </remarks>
+    [DefaultExecutionOrder(50)]
     public class ExteriorWorldMotion : MonoBehaviour
     {
         [Header("References")]
@@ -29,6 +36,14 @@ namespace ShipBridgePrototype
             "should physically tilt.")]
         [SerializeField] private bool applySeakeepingAttitudeToExterior = false;
 
+        [Tooltip(
+            "How much of the pitch lever arm reaches the bridge. 1 = physically correct " +
+            "(the bridge rises and falls as the bow pitches, which on a long ship is " +
+            "metres). Lower it if the vertical motion is too strong in the headset; 0 " +
+            "reverts to the old midships-only heave.")]
+        [Range(0f, 1f)]
+        [SerializeField] private float pitchLeverGain = 1f;
+
         [Header("Sea datum")]
         [Tooltip(
             "Where the loaded scenario puts mean sea level, in ExteriorWorld local Y. The " +
@@ -43,8 +58,8 @@ namespace ShipBridgePrototype
         private Quaternion _shipForwardBasis = Quaternion.identity;
         private float _simOriginForwardM;
         private float _bridgeAboveSeaM = 14.5f;
-        /// <summary>Sea datum currently baked into ExteriorWorld.Root by the last apply.</summary>
-        private float _appliedDatumY;
+        /// <summary>Scenario datum currently baked into ExteriorWorld.Root by the last apply.</summary>
+        private Vector3 _appliedDatum;
 
         public ExteriorWorldRoot ExteriorWorld => exteriorWorld;
         public Transform ShipPivot => shipPivot;
@@ -69,14 +84,40 @@ namespace ShipBridgePrototype
         public float BridgeAboveSeaM => _bridgeAboveSeaM;
 
         /// <summary>
-        /// Static vertical offset applied to the whole exterior so the scenario's sea
-        /// datum lands at the active vessel's eye height. Lowering only the ocean instead
-        /// (the previous behaviour) changed the sea level relative to the coast every time
-        /// the vessel changed, beaching or flooding the islands by the bridge-height
-        /// difference. This is a datum, not motion: it stays out of the geo↔world maps,
-        /// which are only ever used for horizontal sampling.
+        /// Static vertical component of the scenario datum: puts the scenario's sea level
+        /// at the active vessel's eye height. Lowering only the ocean instead changed the
+        /// sea level relative to the coast on every vessel change.
         /// </summary>
         public float SeaDatumShiftY => -_bridgeAboveSeaM - scenarioSeaLevelLocalY;
+
+        /// <summary>
+        /// Where the exterior content is parked so that a point authored at scenario-local
+        /// (x, y, z) reads as the geographic position (East = x, North = z) with its sea
+        /// level at eye height.
+        /// <para>
+        /// The forward term is the horizontal twin of the vertical one. Scenario prefabs
+        /// hang off the room centre (the bridge), but the sim's East/North track the
+        /// maneuvering origin, which sits <c>SimOriginForwardFromBridgeM</c> ahead of it.
+        /// Without this, scenario geometry sat that far astern of the coordinates radar,
+        /// chart, ARPA and traffic all use — and by a different amount per vessel, so the
+        /// same island was 207 m away on the coaster and 91 m away on the KVLCC2.
+        /// </para>
+        /// This is a datum, not motion: it is added after the inverse transform and stays
+        /// out of the geo↔world maps, which only ever feed horizontal sampling.
+        /// </summary>
+        public Vector3 ScenarioDatumOffset =>
+            _shipForwardBasis * new Vector3(0f, SeaDatumShiftY, _simOriginForwardM);
+
+        /// <summary>
+        /// Geographic position of a point authored at scenario-local <paramref name="local"/>.
+        /// Inverse of the datum above; used to derive radar land echoes from the scenery
+        /// that is actually on screen.
+        /// </summary>
+        public void ScenarioLocalToGeo(Vector3 local, out double east, out double north)
+        {
+            east = local.x;
+            north = local.z;
+        }
 
         private void Awake()
         {
@@ -183,7 +224,7 @@ namespace ShipBridgePrototype
             // strip it here or it would compound each time a scenario is swapped.
             ResolveShipPose(out var shipPos, out var shipRot);
             var root = exteriorWorld.Root;
-            var rootPos = root.position - Vector3.up * _appliedDatumY;
+            var rootPos = root.position - _appliedDatum;
             var invShip0 = Quaternion.Inverse(_shipForwardBasis);
             _initialExteriorPosition =
                 shipPos + shipRot * (invShip0 * (rootPos - SimOriginInitialPosition));
@@ -218,7 +259,7 @@ namespace ShipBridgePrototype
             // Store the undatumed pose; ApplyInverseExteriorPose re-adds the datum every
             // frame. Subtracting what is actually baked in (zero before the first apply,
             // the live datum afterwards) keeps a re-capture from compounding it.
-            _initialExteriorPosition = exteriorWorld.Root.position - Vector3.up * _appliedDatumY;
+            _initialExteriorPosition = exteriorWorld.Root.position - _appliedDatum;
             _initialExteriorRotation = exteriorWorld.Root.rotation;
             _hasInitialPose = true;
 
@@ -243,9 +284,20 @@ namespace ShipBridgePrototype
             }
 
             float gain = seakeepingVisualGain;
+
+            // Vertical motion of the BRIDGE, not of midships. The sim's heave is sampled
+            // at the maneuvering origin, but the observer stands SimOriginForwardFromBridgeM
+            // aft of it — half a ship's length, up to 163 m on the KVLCC2. On a real ship
+            // that lever is what makes an aft bridge rise as the bow digs in; feeding the
+            // raw midships heave instead left the water outside the windows swinging by
+            // the full difference between two decorrelated points of the wave field.
+            float pitchRad = (float)runner.InterpPitchDeg * Mathf.Deg2Rad;
+            float bridgeLift = _simOriginForwardM * Mathf.Tan(pitchRad) * pitchLeverGain;
+            float verticalM = ((float)runner.InterpHeave + bridgeLift) * gain;
+
             var localOffset = new Vector3(
                 (float)runner.InterpEast,
-                (float)runner.InterpHeave * gain,
+                verticalM,
                 (float)runner.InterpNorth);
 
             // Yaw always. Pitch/roll only if explicitly enabled — tilting ExteriorWorld can
@@ -276,13 +328,13 @@ namespace ShipBridgePrototype
             var shipRot0 = _shipForwardBasis;
             var invShip = Quaternion.Inverse(shipRot);
 
-            float datumY = SeaDatumShiftY;
+            Vector3 datum = ScenarioDatumOffset;
             var newPos = shipPos0 + shipRot0 * (invShip * (_initialExteriorPosition - shipPos))
-                         + Vector3.up * datumY;
+                         + datum;
             var newRot = shipRot0 * invShip * _initialExteriorRotation;
 
             exteriorWorld.Root.SetPositionAndRotation(newPos, newRot);
-            _appliedDatumY = datumY;
+            _appliedDatum = datum;
         }
 
         /// <summary>

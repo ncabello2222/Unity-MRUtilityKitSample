@@ -84,6 +84,8 @@ namespace NavigationSim.UnityLayer.UI
         private TMP_Text _compassSog;
 
         private TMP_Text _depthValue;
+        private TMP_Text _gpsValue;
+        private TMP_Text _tideValue;
         private TMP_Text _heaveValue;
         private TMP_Text _rollValue;
         private TMP_Text _pitchValue;
@@ -144,7 +146,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private static bool TogglePressed()
         {
-            // Y on left Touch controller (B stays reserved for the config panel).
+            // Quest Touch left Y = Button.Two on LTouch (X = Button.One).
             if (OVRInput.GetDown(OVRInput.Button.Two, OVRInput.Controller.LTouch))
             {
                 return true;
@@ -544,9 +546,10 @@ namespace NavigationSim.UnityLayer.UI
             _depthBarFill = CreateImage(depthCard, "DepthFill", new Vector2(24f, -130f),
                 new Vector2(0f, 28f), AccentCyan);
 
-            CreateText(depthCard, "DepthHint", new Vector2(16f, -180f), new Vector2(320f, 36f),
-                "Barra relativa (0-100 m). Caution bajo 15 m · Alarm bajo 8 m", 15f,
-                TextAlignmentOptions.Left, TextMuted);
+            _gpsValue = CreateText(depthCard, "GpsVal", new Vector2(16f, -160f),
+                new Vector2(320f, 40f), "GPS —", 15f, TextAlignmentOptions.Left, TextMuted);
+            _tideValue = CreateText(depthCard, "TideVal", new Vector2(16f, -198f),
+                new Vector2(320f, 28f), "TIDE —", 16f, TextAlignmentOptions.Left, AccentCyan);
 
             // Motion card.
             var motionCard = CreateCard(parent, "MotionCard",
@@ -654,7 +657,7 @@ namespace NavigationSim.UnityLayer.UI
             SetText(_rudderActual, $"ACT {s.RudderAngleDeg:+0.0;-0.0;0.0}°");
             UpdateRudderBar((float)orderRudder, (float)s.RudderAngleDeg);
 
-            // Depth.
+            // Depth / GPS / tide.
             SetText(_depthValue, $"{env.WaterDepthM:0.0} m");
             if (_depthBarFill != null)
             {
@@ -662,6 +665,14 @@ namespace NavigationSim.UnityLayer.UI
                 _depthBarFill.rectTransform.sizeDelta = new Vector2(312f * depthFrac, 28f);
                 _depthBarFill.color = SeverityColor(DepthSeverity(env.WaterDepthM), AccentCyan);
             }
+
+            if (_runner.Geo != null)
+            {
+                _runner.Geo.ToLatLon(s.North, s.East, out double lat, out double lon);
+                SetText(_gpsValue, $"GPS {GeoDatum.FormatLat(lat)}  {GeoDatum.FormatLon(lon)}");
+            }
+
+            SetText(_tideValue, $"TIDE {env.TideHeightM:+0.00;-0.00;0.00} m");
 
             SetText(_heaveValue, $"H {s.HeaveM:+0.00;-0.00;0.00} m");
             SetText(_rollValue, $"R {s.RollDeg:+0.0;-0.0;0.0}°");
