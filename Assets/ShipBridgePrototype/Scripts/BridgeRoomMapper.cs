@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
@@ -88,6 +89,12 @@ namespace ShipBridgePrototype
         public ExteriorWorldRoot ExteriorWorld => _exteriorWorldRoot;
         public BridgeReferenceFrame ReferenceFrame => _referenceFrame;
         public IReadOnlyDictionary<WallRole, MRUKAnchor> ClassifiedWalls => _classifiedWalls;
+
+        /// <summary>
+        /// Fired after walls are classified, geometry is built, and
+        /// <see cref="BridgeReferenceFrame"/> is published (including Front/Aft flips).
+        /// </summary>
+        public event Action BridgeGenerated;
 
         private void OnEnable()
         {
@@ -205,6 +212,7 @@ namespace ShipBridgePrototype
 
             EnsureCalibrationComponent(room);
             LogBridgeFrame();
+            BridgeGenerated?.Invoke();
         }
 
         /// <summary>Persist current Front as the confirmed bow.</summary>

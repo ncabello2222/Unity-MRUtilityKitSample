@@ -1811,14 +1811,16 @@ MonoBehaviour:
   bombaGobierno2: 1
   corrienteKn: 0
   dirCorrienteHaciaDeg: 0
-  vientoMs: 0
+  vientoKn: 0
   dirVientoDesdeDeg: 0
   alturaOlasHsM: 0.5
   periodoPicoTpS: 8
   dirOleajeDesdeDeg: 0
   periodoBalanceS: 12
   profundidadM: 60
+  mareaM: 1.2
   densidadAgua: 1025
+  nmeaUdpOut: 0
   rumboDeg: 0
   rotDegMin: 0
   sogKn: 0
@@ -2627,6 +2629,7 @@ MonoBehaviour:
   shipPivot: {fileID: 0}
   seakeepingVisualGain: 1
   applySeakeepingAttitudeToExterior: 0
+  pitchLeverGain: 1
   scenarioSeaLevelLocalY: -14.5
 --- !u!114 &2051625789
 MonoBehaviour:

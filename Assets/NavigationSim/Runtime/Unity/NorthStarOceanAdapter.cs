@@ -31,6 +31,18 @@ namespace NavigationSim.UnityLayer
         private static readonly int OceanVisAlbedoId = Shader.PropertyToID("_OceanVisAlbedo");
         private static readonly int OceanAlbedoColorId = Shader.PropertyToID("_OceanAlbedoColor");
         private static readonly int GiantWaveOffsetId = Shader.PropertyToID("_GiantWaveOffset");
+
+        /// <summary>
+        /// The room→geography map the water shader applies to its world XZ before
+        /// dividing by the patch, packed as (cos, sin, offsetX, offsetZ):
+        /// <code>
+        ///   u =  cos * x + sin * z + offsetX
+        ///   v = -sin * x + cos * z + offsetZ
+        /// </code>
+        /// Identity is (1, 0, 0, 0), which reproduces the old world-XZ sampling, so a
+        /// graph carrying the node behaves exactly as before until this is published.
+        /// </summary>
+        private static readonly int OceanGeoRotationId = Shader.PropertyToID("_OceanGeoRotation");
         private static readonly int SmoothnessCloseId = Shader.PropertyToID("_Smoothness_Close");
 
         public enum OceanQualityMode
@@ -56,6 +68,12 @@ namespace NavigationSim.UnityLayer
         [SerializeField] private float oceanSize = 1024f;
         [Tooltip("When true, translates the FFT field with the exterior-world transform so crests stay glued to the terrain while the bridge stays fixed.")]
         [SerializeField] private bool scrollWavesWithVirtualPosition = true;
+        [Tooltip(
+            "Sample the wave field in geographic axes instead of room axes, so the sea turns " +
+            "with the world instead of standing still with the ship. REQUIRES the matching 2D " +
+            "rotation node in the water Shader Graph (property _OceanGeoRotation, default " +
+            "(1,0,0,0)). Leave off until that node is in place, or the sea will freeze.")]
+        [SerializeField] private bool geographicFieldSampling;
         [Tooltip("Drive WaveResponseModel from iFFT height samples (Phase 3).")]
         [SerializeField] private bool bindSeakeepingToSurface = true;
         [Tooltip("Logs once a second what the wave field is actually doing: how fast it is being told to scroll, how fast it really scrolled, and how many iFFT rebuilds delivered it. Use when the sea looks glued to the ship.")]
@@ -89,6 +107,9 @@ namespace NavigationSim.UnityLayer
         // between spawn and the first SyncSeaState.
         private float _targetHsM = 0.5f;
         private float _amplitudeScale = 1f;
+        // Identity until the geographic path fills it, so a graph already carrying the
+        // rotation node samples plain world XZ exactly as it does today.
+        private Vector4 _geoFrame = new Vector4(1f, 0f, 0f, 0f);
 
         // Field-motion diagnostics.
         private float _diagTimer;
@@ -224,7 +245,20 @@ namespace NavigationSim.UnityLayer
             Vector3 shift = ComputeWaterShift(east, north, headingDeg);
             _waterShiftY = shift.y;
 
-            if (_oceanSimulation == null || !scrollWavesWithVirtualPosition)
+            if (_oceanSimulation == null)
+            {
+                return;
+            }
+
+            Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(shift.x, 0f, shift.z, 0f));
+
+            if (geographicFieldSampling)
+            {
+                PublishGeographicFrame();
+                return;
+            }
+
+            if (!scrollWavesWithVirtualPosition)
             {
                 return;
             }
@@ -232,7 +266,72 @@ namespace NavigationSim.UnityLayer
             // T(u) = f(u + D): features move by -D, so D = -shift tracks the water.
             _oceanSimulation.FieldOffset = new Vector2(-shift.x, -shift.z);
             _diagLastFrameOffset = _oceanSimulation.FieldOffset;
-            Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(shift.x, 0f, shift.z, 0f));
+        }
+
+        /// <summary>
+        /// Hands the shader the room→geography map, which is what makes the sea turn
+        /// with the world instead of standing still with the ship.
+        /// <para>
+        /// The old scheme translated the field and never rotated it. Since the bridge is
+        /// the thing that is nailed down, "never rotated" and "glued to the ship" are the
+        /// same picture: the wave pattern kept its own motion in the observer's frame
+        /// while the coastline swung past it. Counter-rotating the wind vector could not
+        /// fix that — it reweights which directions carry energy, so the field dissolves
+        /// and reforms rather than sweeping around.
+        /// </para>
+        /// <para>
+        /// Sampling in geographic axes fixes it at the root, and retires the per-degree
+        /// spectrum rebuild as a side effect: see <see cref="BuildWindVector"/>.
+        /// </para>
+        /// </summary>
+        private void PublishGeographicFrame()
+        {
+            CurrentWaterDrift(out double driftEast, out double driftNorth);
+
+            // Anchor of the geographic frame in the room: the maneuvering origin at psi = 0,
+            // which is the same point ExteriorWorldMotion pivots the whole exterior about.
+            Vector3 origin = _motion != null && _motion.HasInitialPose
+                ? _motion.SimOriginInitialPosition
+                : _pivotPosition;
+
+            // Undo the basis the exterior was bound in, then apply the ship's heading:
+            // exactly the inverse of ExteriorWorldMotion.GeoToWorld, flattened to yaw.
+            Quaternion toGeo = Quaternion.Euler(0f, (float)_headingDeg, 0f)
+                               * Quaternion.Inverse(_shipForwardBasis);
+            float c = (toGeo * Vector3.right).x;
+            float s = (toGeo * Vector3.forward).x;
+
+            float ox = (float)(_east - driftEast) - (c * origin.x + s * origin.z);
+            float oz = (float)(_north - driftNorth) - (c * origin.z - s * origin.x);
+
+            // The field is periodic in the patch, so folding the translation into one
+            // period keeps the shader's float32 UV exact however far the exercise sails.
+            // Without it a 50 km leg spends its whole mantissa on the integer part.
+            ox = Mathf.Repeat(ox, _patchSize);
+            oz = Mathf.Repeat(oz, _patchSize);
+
+            // All the motion now rides in the map above; a second translation on top of
+            // it would double-count every metre the ship makes good.
+            _oceanSimulation.FieldOffset = Vector2.zero;
+            _diagLastFrameOffset = new Vector2(ox, oz);
+
+            // Delivered on the property block in OnBeginContextRendering, the same way
+            // the displacement map itself reaches the quadtree. Shader.SetGlobalVector
+            // would need the graph property declared Global to escape UnityPerMaterial,
+            // and a value that silently never arrives reads exactly like a frozen sea.
+            _geoFrame = new Vector4(c, s, ox, oz);
+        }
+
+        /// <summary>
+        /// Travel of the water mass itself under the current. Subtracted from the
+        /// geographic sample point so a ship stopped over the ground still sees the sea
+        /// move past, and one drifting with the current sees it stand still.
+        /// </summary>
+        private static void CurrentWaterDrift(out double east, out double north)
+        {
+            ShipState state = NavigationSimRunner.Instance?.Sim?.State;
+            east = state?.WaterDriftEast ?? 0.0;
+            north = state?.WaterDriftNorth ?? 0.0;
         }
 
         /// <summary>
@@ -269,6 +368,19 @@ namespace NavigationSim.UnityLayer
             }
 
             EnsureDisplacementReady();
+
+            if (geographicFieldSampling)
+            {
+                // The field is anchored to geography now, so the probe is the query point
+                // itself — no room round trip at all. This must stay the exact inverse of
+                // what PublishGeographicFrame hands the shader: the two disagreeing is how
+                // traffic ends up floating above or below the wave it is standing on.
+                CurrentWaterDrift(out double driftEast, out double driftNorth);
+                return SampleHeightIterative(new Vector3(
+                    Mathf.Repeat((float)(east - driftEast), _patchSize),
+                    0f,
+                    Mathf.Repeat((float)(north - driftNorth), _patchSize)), _sampleDepth);
+            }
 
             // Sample in the frame the mesh is drawn: geo → current Unity world via
             // the inverse-exterior transform, then world XZ / patch as UV, exactly
@@ -603,6 +715,17 @@ namespace NavigationSim.UnityLayer
 
         private Vector3 BuildWindVector()
         {
+            if (geographicFieldSampling)
+            {
+                // The field's own axes are geographic now (u = east, v = north), so the
+                // wind is handed over in those axes and stops moving when the ship turns.
+                // That is what retires the rebuild: OceanSimulation recomputes the whole
+                // N^2 Phillips spectrum whenever this vector changes at all, and it now
+                // only changes when the instructor orders a different sea.
+                float geoRad = (_driveFromDeg + 180f) * Mathf.Deg2Rad;
+                return new Vector3(Mathf.Sin(geoRad), 0f, Mathf.Cos(geoRad)) * _driveWindSpeed;
+            }
+
             // Relative to bridge heading so geographic wave direction reads correctly
             // while ExteriorWorldRoot rotates inversely.
             //
@@ -756,6 +879,7 @@ namespace NavigationSim.UnityLayer
             // OceanFFTFinalJob already bakes choppyness into the displacement texture, so
             // setting it was a no-op that read like a live control.
             _propertyBlock.SetFloat(OceanRcpScaleId, 1.0f / _patchSize);
+            _propertyBlock.SetVector(OceanGeoRotationId, _geoFrame);
             _propertyBlock.SetTexture(OceanDisplacementId, _oceanSimulation.DisplacementMap);
             _propertyBlock.SetTexture(OceanNormalId, _oceanSimulation.NormalMap);
 
