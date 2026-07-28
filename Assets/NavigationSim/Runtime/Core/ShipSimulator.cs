@@ -28,6 +28,13 @@ namespace NavigationSim.Core
         private readonly double[] _x = new double[6];
         private ExternalForces _externalForces;
 
+        // Parameters the derivative needs but the integrator does not know about,
+        // held constant over the step. See EvaluateDerivatives.
+        private readonly StateDerivative _derivatives;
+        private IManeuveringModel _stepModel;
+        private double _stepRudderRad;
+        private double _stepRps;
+
         /// <summary>Rudder command currently driving the gear (after mode resolution).</summary>
         public double ResolvedRudderCommandDeg { get; private set; }
 
@@ -35,6 +42,7 @@ namespace NavigationSim.Core
         {
             Config = config;
             Environment = environment;
+            _derivatives = EvaluateDerivatives;
             RebuildModels();
         }
 
@@ -113,14 +121,14 @@ namespace NavigationSim.Core
             _x[4] = State.East;
             _x[5] = State.PsiRad;
 
-            double rudderRad = Rudder.AngleDeg * Math.PI / 180.0;
             double rps = Engine.Rps;
-            IManeuveringModel model = Config.ModelType == ManeuveringModelType.MmgCalibrated
+            _stepRudderRad = Rudder.AngleDeg * Math.PI / 180.0;
+            _stepRps = rps;
+            _stepModel = Config.ModelType == ManeuveringModelType.MmgCalibrated
                 ? (IManeuveringModel)_mmg
                 : _clarke;
 
-            _rk4.Step((x, dxdt) => model.Derivatives(x, rudderRad, rps, _externalForces, env, dxdt),
-                _x, dt);
+            _rk4.Step(_derivatives, _x, dt);
 
             State.U = _x[0];
             State.V = _x[1];
@@ -171,6 +179,21 @@ namespace NavigationSim.Core
             State.PitchDeg = Waves.PitchDeg;
 
             State.TimeS += dt;
+        }
+
+        /// <summary>
+        /// The function RK4 evaluates four times per step. It reads the model, the
+        /// rudder angle, the shaft rate and the external loads off fields instead of
+        /// a closure: written as a lambda at the call site it captured four locals
+        /// plus <c>this</c>, so the compiler built a display class and a delegate on
+        /// every step — two short-lived objects per step, and the runner takes 3000
+        /// steps a second at x60 fast time. The delegate is now made once, in the
+        /// constructor. Anything this reads must be held constant across the step,
+        /// which is exactly what the four evaluation points of RK4 assume anyway.
+        /// </summary>
+        private void EvaluateDerivatives(double[] x, double[] dxdt)
+        {
+            _stepModel.Derivatives(x, _stepRudderRad, _stepRps, _externalForces, Environment, dxdt);
         }
 
         public void Reset()
