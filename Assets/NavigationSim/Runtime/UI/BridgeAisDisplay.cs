@@ -11,7 +11,7 @@ namespace NavigationSim.UnityLayer.UI
     /// <summary>
     /// AIS contact list (synthetic — no radio). Toggle: keyboard I / left stick click.
     /// </summary>
-    public sealed class BridgeAisDisplay : MonoBehaviour
+    public sealed class BridgeAisDisplay : MonoBehaviour, IBridgeDockableInstrument
     {
         private const float Width = 900f;
         private const float Height = 720f;
@@ -32,8 +32,17 @@ namespace NavigationSim.UnityLayer.UI
         private float _timer;
         private bool _openWhenReady;
         private bool _built;
+        private bool _docked;
 
+        public string InstrumentId => "ais";
+        public string DisplayName => "AIS";
+        public Vector2 NativeSizePx => new Vector2(Width, Height);
+        public bool IsReady => _built && _root != null;
         public bool IsOpen { get; private set; }
+        public bool IsDocked => _docked;
+        public Transform CanvasRoot => _root != null ? _root.transform : null;
+
+        public void SetDocked(bool docked) => _docked = docked;
 
         private void Awake()
         {
@@ -53,7 +62,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private void Update()
         {
-            if (TogglePressed())
+            if (!_docked && TogglePressed())
             {
                 if (IsOpen || _openWhenReady)
                 {
@@ -104,7 +113,11 @@ namespace NavigationSim.UnityLayer.UI
                 return;
             }
 
-            BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.55f, 0.55f, -0.05f);
+            if (!_docked)
+            {
+                BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.55f, 0.55f, -0.05f);
+            }
+
             _canvas.enabled = true;
             IsOpen = true;
             Refresh();

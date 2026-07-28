@@ -105,7 +105,11 @@ namespace ShipBridgePrototype
         {
             // MRUK may spawn/initialize after this component enables.
             BindMruk();
-            if (generateOnSceneLoaded && IsRoomReady())
+            // SceneLoaded often fires during OnEnable BindMruk when the room is
+            // already ready. Do not regenerate here or ClearGenerated destroys the
+            // hull/console setup that just finished (and late listeners miss the
+            // first BridgeGenerated).
+            if (generateOnSceneLoaded && IsRoomReady() && _generatedRoot == null)
             {
                 GenerateBridge();
             }

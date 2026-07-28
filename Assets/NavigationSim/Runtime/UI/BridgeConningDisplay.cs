@@ -16,10 +16,12 @@ namespace NavigationSim.UnityLayer.UI
     /// instructor <see cref="SimulationConfigPanel"/> (toggle B). Open/close with
     /// Y on the left controller, or the Y key in the editor.
     /// </summary>
-    public class BridgeConningDisplay : MonoBehaviour
+    public class BridgeConningDisplay : MonoBehaviour, IBridgeDockableInstrument
     {
         private const float CanvasWidth = 1480f;
         private const float CanvasHeight = 900f;
+        private const float OpenBridgeWidth = 1920f;
+        private const float OpenBridgeHeight = 1080f;
         private const float RefreshInterval = 0.12f;
 
         /// <summary>Where the panel waits while it is built, well clear of the room.</summary>
@@ -55,6 +57,8 @@ namespace NavigationSim.UnityLayer.UI
         private OpenBridgeConningBinder _openBridgeBinder;
         private float _refreshTimer;
         private bool _openWhenReady;
+        private bool _docked;
+        private bool _built;
 
         private TMP_Text _hdgValue;
         private TMP_Text _rotValue;
@@ -103,7 +107,18 @@ namespace NavigationSim.UnityLayer.UI
         private static Sprite _circleSprite;
         private static Sprite _ringSprite;
 
+        public string InstrumentId => "conning";
+        public string DisplayName => "CONNING";
+        public Vector2 NativeSizePx =>
+            _openBridgeBinder != null
+                ? new Vector2(OpenBridgeWidth, OpenBridgeHeight)
+                : new Vector2(CanvasWidth, CanvasHeight);
+        public bool IsReady => _built && _canvasRoot != null;
         public bool IsOpen { get; private set; }
+        public bool IsDocked => _docked;
+        public Transform CanvasRoot => _canvasRoot != null ? _canvasRoot.transform : null;
+
+        public void SetDocked(bool docked) => _docked = docked;
 
         private void Awake()
         {
@@ -117,7 +132,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private void Update()
         {
-            if (TogglePressed())
+            if (!_docked && TogglePressed())
             {
                 if (IsOpen || _openWhenReady)
                 {
@@ -170,7 +185,11 @@ namespace NavigationSim.UnityLayer.UI
                 return;
             }
 
-            PlaceInFrontOfCamera();
+            if (!_docked)
+            {
+                PlaceInFrontOfCamera();
+            }
+
             _canvas.enabled = true;
             IsOpen = true;
             _refreshTimer = RefreshInterval;
@@ -261,6 +280,7 @@ namespace NavigationSim.UnityLayer.UI
 
             WarmCanvas();
             _canvas.enabled = false;
+            _built = _canvasRoot != null;
 
             if (_openWhenReady)
             {

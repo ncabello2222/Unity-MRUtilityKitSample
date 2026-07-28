@@ -52,6 +52,8 @@ namespace ShipBridgePrototype
         public Transform ConsoleBase => consoleBase;
         public Transform ConsoleUpper => consoleUpper;
         public Transform ConsoleMeson => consoleMeson;
+        public Transform ConsoleInclinado => consoleInclinado;
+        public Transform ConsoleTeclado => consoleTeclado;
         public Transform HeightHandle => heightHandle;
         public float TargetBaseHeight => _targetBaseHeight;
         public float DefaultBaseHeight => defaultBaseHeightMeters;

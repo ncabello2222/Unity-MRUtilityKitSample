@@ -59,6 +59,8 @@ namespace ShipBridgePrototype
         public void BindPivot(Transform pivot)
         {
             shipPivot = pivot;
+            // ClearGenerated destroys ShipMotionPivot + VesselHullRoot; Unity fake-nulls
+            // the dead hullParent / _activeHull references.
             if (hullParent == null && pivot != null)
             {
                 EnsureHullParent();
@@ -74,7 +76,18 @@ namespace ShipBridgePrototype
                 hullParent.localScale = Vector3.one;
             }
 
-            if (!string.IsNullOrEmpty(_activeId))
+            if (string.IsNullOrEmpty(_activeId))
+            {
+                return;
+            }
+
+            // ApplyPose alone is a no-op when regenerate destroyed the hull instance.
+            // ShowVessel recreates from cache (or Resources) under the new pivot.
+            if (_activeHull == null)
+            {
+                ShowVessel(_activeId);
+            }
+            else
             {
                 ApplyPose(VesselCatalog.Get(VesselCatalog.IndexOf(_activeId)));
             }

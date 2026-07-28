@@ -20,7 +20,7 @@ namespace NavigationSim.UnityLayer.UI
     /// no <c>SetPixel</c>, no per-pixel readback.
     /// </para>
     /// </summary>
-    public sealed class BridgeRadarDisplay : MonoBehaviour
+    public sealed class BridgeRadarDisplay : MonoBehaviour, IBridgeDockableInstrument
     {
         private const float Width = 1200f;
         private const float Height = 960f;
@@ -84,9 +84,18 @@ namespace NavigationSim.UnityLayer.UI
         private float _sweepDeg;
         private bool _openWhenReady;
         private bool _built;
+        private bool _docked;
         private int _activePi;
 
+        public string InstrumentId => "radar";
+        public string DisplayName => "RADAR";
+        public Vector2 NativeSizePx => new Vector2(Width, Height);
+        public bool IsReady => _built && _root != null;
         public bool IsOpen { get; private set; }
+        public bool IsDocked => _docked;
+        public Transform CanvasRoot => _root != null ? _root.transform : null;
+
+        public void SetDocked(bool docked) => _docked = docked;
 
         private void Awake()
         {
@@ -106,7 +115,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private void Update()
         {
-            if (TogglePressed())
+            if (!_docked && TogglePressed())
             {
                 if (IsOpen || _openWhenReady)
                 {
@@ -157,7 +166,11 @@ namespace NavigationSim.UnityLayer.UI
                 return;
             }
 
-            BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.75f, -0.45f, 0.02f);
+            if (!_docked)
+            {
+                BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.75f, -0.45f, 0.02f);
+            }
+
             _canvas.enabled = true;
             IsOpen = true;
             Refresh();

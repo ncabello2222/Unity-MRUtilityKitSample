@@ -28,6 +28,8 @@ namespace ShipBridgePrototype
         private GameObject _worldPanel;
         private Text _statusLabel;
         private OVRCameraRig _cameraRig;
+        private Coroutine _panelPoseRoutine;
+        private bool _panelPoseSettled;
 
         public bool NeedsUserConfirm => _needsUserConfirm;
         public float RestoreDotThreshold => restoreDotThreshold;
@@ -50,6 +52,7 @@ namespace ShipBridgePrototype
                 Instance = null;
             }
 
+            StopPanelPoseRoutine();
             DestroyWorldPanel();
         }
 
@@ -60,10 +63,13 @@ namespace ShipBridgePrototype
             _needsUserConfirm = needsConfirm;
             if (needsConfirm)
             {
-                EnsureWorldPanel();
+                // Defer until head tracking is valid — first-frame pose is often at
+                // the tracking origin so the panel spawns off-screen / in the floor.
+                EnsureWorldPanelWhenReady();
             }
             else
             {
+                StopPanelPoseRoutine();
                 DestroyWorldPanel();
             }
         }
@@ -125,7 +131,7 @@ namespace ShipBridgePrototype
             }
 
             _needsUserConfirm = true;
-            EnsureWorldPanel();
+            EnsureWorldPanelWhenReady();
             RefreshStatusLabel();
         }
 
@@ -144,7 +150,7 @@ namespace ShipBridgePrototype
             var frame = BridgeReferenceFrame.Instance;
             frame?.SetCalibrated(false);
             _needsUserConfirm = true;
-            EnsureWorldPanel();
+            EnsureWorldPanelWhenReady();
             Debug.Log("[BridgeOrientationCalibration] Calibration cleared for room.");
         }
 
@@ -188,6 +194,69 @@ namespace ShipBridgePrototype
             GUILayout.EndArea();
         }
 
+        private void EnsureWorldPanelWhenReady()
+        {
+            if (!showWorldPanel || !_needsUserConfirm)
+            {
+                return;
+            }
+
+            StopPanelPoseRoutine();
+            if (isActiveAndEnabled)
+            {
+                _panelPoseRoutine = StartCoroutine(EnsureWorldPanelRoutine());
+            }
+            else
+            {
+                EnsureWorldPanel();
+            }
+        }
+
+        private IEnumerator EnsureWorldPanelRoutine()
+        {
+            // Wait a couple of frames for OVRCameraRig / XR tracking to settle.
+            yield return null;
+            yield return null;
+
+            const float timeoutSec = 3f;
+            var elapsed = 0f;
+            while (elapsed < timeoutSec && !TryGetReliableUserFacingPose(out _, out _))
+            {
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            if (_needsUserConfirm)
+            {
+                EnsureWorldPanel();
+            }
+
+            _panelPoseRoutine = null;
+        }
+
+        private void StopPanelPoseRoutine()
+        {
+            if (_panelPoseRoutine != null)
+            {
+                StopCoroutine(_panelPoseRoutine);
+                _panelPoseRoutine = null;
+            }
+        }
+
+        private void LateUpdate()
+        {
+            if (!_needsUserConfirm || _worldPanel == null || _panelPoseSettled)
+            {
+                return;
+            }
+
+            if (TryGetReliableUserFacingPose(out var pos, out var rot))
+            {
+                _worldPanel.transform.SetPositionAndRotation(pos, rot);
+                _panelPoseSettled = true;
+            }
+        }
+
         private void EnsureWorldPanel()
         {
             if (!showWorldPanel)
@@ -196,10 +265,14 @@ namespace ShipBridgePrototype
             }
 
             DestroyWorldPanel();
+            _panelPoseSettled = false;
 
-            if (!TryGetUserFacingPose(out var pos, out var rot))
+            Vector3 pos;
+            Quaternion rot;
+            if (!TryGetReliableUserFacingPose(out pos, out rot))
             {
-                // Fallback: room pivot, facing the user (UI faces -Z → LookRotation toward bow).
+                // Prefer a visible bridge-relative pose over an untracked head at the
+                // origin. LateUpdate snaps to the user once tracking is reliable.
                 var frame = BridgeReferenceFrame.Instance;
                 var pivot = frame != null ? frame.Pivot : transform;
                 var fwd = frame != null ? frame.Forward : Vector3.forward;
@@ -264,24 +337,7 @@ namespace ShipBridgePrototype
             position = default;
             rotation = Quaternion.identity;
 
-            if (_cameraRig == null)
-            {
-                _cameraRig = FindAnyObjectByType<OVRCameraRig>();
-            }
-
-            Transform head = null;
-            if (_cameraRig != null)
-            {
-                head = _cameraRig.centerEyeAnchor != null
-                    ? _cameraRig.centerEyeAnchor
-                    : _cameraRig.transform;
-            }
-            else if (Camera.main != null)
-            {
-                head = Camera.main.transform;
-            }
-
-            if (head == null)
+            if (!TryGetHead(out var head))
             {
                 return false;
             }
@@ -314,6 +370,70 @@ namespace ShipBridgePrototype
             position.y = height;
             // +Z = away from user → GraphicRaycaster / PlaneSurface Backward face the user.
             rotation = Quaternion.LookRotation(forward, Vector3.up);
+            return true;
+        }
+
+        private bool TryGetReliableUserFacingPose(out Vector3 position, out Quaternion rotation)
+        {
+            position = default;
+            rotation = Quaternion.identity;
+            if (!TryGetHead(out var head) || !IsHeadTrackingReliable(head))
+            {
+                return false;
+            }
+
+            return TryGetUserFacingPose(out position, out rotation);
+        }
+
+        private bool TryGetHead(out Transform head)
+        {
+            head = null;
+            if (_cameraRig == null)
+            {
+                _cameraRig = FindAnyObjectByType<OVRCameraRig>();
+            }
+
+            if (_cameraRig != null)
+            {
+                head = _cameraRig.centerEyeAnchor != null
+                    ? _cameraRig.centerEyeAnchor
+                    : _cameraRig.transform;
+            }
+            else if (Camera.main != null)
+            {
+                head = Camera.main.transform;
+            }
+
+            return head != null;
+        }
+
+        private static bool IsHeadTrackingReliable(Transform head)
+        {
+            if (head == null)
+            {
+                return false;
+            }
+
+            // Untracked / pre-recenter poses usually sit near the floor at the origin.
+            if (head.position.y < 0.5f)
+            {
+                return false;
+            }
+
+            try
+            {
+                if (OVRPlugin.initialized &&
+                    !OVRPlugin.GetNodePositionTracked(OVRPlugin.Node.EyeCenter) &&
+                    !OVRPlugin.GetNodePositionTracked(OVRPlugin.Node.Head))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                // OVRPlugin may throw offline; fall through to the height check above.
+            }
+
             return true;
         }
 

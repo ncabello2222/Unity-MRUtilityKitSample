@@ -1,3 +1,4 @@
+using System.Collections;
 using Meta.XR.MRUtilityKit;
 using UnityEngine;
 
@@ -26,6 +27,8 @@ namespace ShipBridgePrototype
 
         private BridgeRoomMapper _mapper;
         private bool _mrukBound;
+        private Coroutine _placeRetryRoutine;
+        private bool _placedThisSession;
 
         public BridgeConsoleController ActiveConsole => activeConsole;
 
@@ -33,20 +36,25 @@ namespace ShipBridgePrototype
         {
             BindMapper();
             BindMruk();
+            // Bootstrap runs AfterSceneLoad — BridgeGenerated may have already fired.
+            TryPlaceCatchUp();
         }
 
         private void Start()
         {
             BindMapper();
             BindMruk();
-            if (IsRoomReady() && BridgeReferenceFrame.Instance != null)
-            {
-                PlaceOrRebuild();
-            }
+            TryPlaceCatchUp();
         }
 
         private void OnDisable()
         {
+            if (_placeRetryRoutine != null)
+            {
+                StopCoroutine(_placeRetryRoutine);
+                _placeRetryRoutine = null;
+            }
+
             UnbindMapper();
             UnbindMruk();
         }
@@ -116,12 +124,58 @@ namespace ShipBridgePrototype
             }
         }
 
+        private void TryPlaceCatchUp()
+        {
+            if (!placeOnBridgeGenerated)
+            {
+                return;
+            }
+
+            if (IsRoomReady() && BridgeReferenceFrame.Instance != null)
+            {
+                PlaceOrRebuild();
+                return;
+            }
+
+            SchedulePlaceRetry();
+        }
+
+        private void SchedulePlaceRetry()
+        {
+            if (!isActiveAndEnabled || _placeRetryRoutine != null || _placedThisSession)
+            {
+                return;
+            }
+
+            _placeRetryRoutine = StartCoroutine(PlaceWhenReadyRoutine());
+        }
+
+        private IEnumerator PlaceWhenReadyRoutine()
+        {
+            const float timeoutSec = 5f;
+            var elapsed = 0f;
+            while (elapsed < timeoutSec && !_placedThisSession)
+            {
+                if (IsRoomReady() && BridgeReferenceFrame.Instance != null)
+                {
+                    PlaceOrRebuild();
+                    break;
+                }
+
+                elapsed += Time.unscaledDeltaTime;
+                yield return null;
+            }
+
+            _placeRetryRoutine = null;
+        }
+
         [ContextMenu("Place Or Rebuild Console")]
         public void PlaceOrRebuild()
         {
             if (!IsRoomReady())
             {
                 Debug.LogWarning("[BridgeConsolePlacer] MRUK room not ready yet.");
+                SchedulePlaceRetry();
                 return;
             }
 
@@ -129,18 +183,21 @@ namespace ShipBridgePrototype
             if (room == null)
             {
                 Debug.LogWarning("[BridgeConsolePlacer] No current MRUK room.");
+                SchedulePlaceRetry();
                 return;
             }
 
             if (!TryResolveWall(room, out var wall, out var wallWidth, out var inward))
             {
                 Debug.LogWarning("[BridgeConsolePlacer] Could not resolve a main wall.");
+                SchedulePlaceRetry();
                 return;
             }
 
             var console = EnsureConsoleInstance();
             if (console == null)
             {
+                SchedulePlaceRetry();
                 return;
             }
 
@@ -159,6 +216,7 @@ namespace ShipBridgePrototype
             // Wire grab AFTER width scale / placement so the handle collider is
             // compensated for the non-uniform root scale and sits on the desk lip.
             height.EnsureInteractable();
+            _placedThisSession = true;
 
             Debug.Log(
                 $"[BridgeConsolePlacer] Placed console on '{wall.name}' " +

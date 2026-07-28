@@ -70,6 +70,11 @@ namespace NavigationSim.UnityLayer
                 runner.gameObject.AddComponent<UI.BridgeInstrumentsMenu>();
             }
 
+            if (runner.GetComponent<UI.BridgeConsoleDisplayRig>() == null)
+            {
+                runner.gameObject.AddComponent<UI.BridgeConsoleDisplayRig>();
+            }
+
             OtherShipPresenter.EnsureInstance();
 
             var systems = GameObject.Find("ShipBridgeSystems");

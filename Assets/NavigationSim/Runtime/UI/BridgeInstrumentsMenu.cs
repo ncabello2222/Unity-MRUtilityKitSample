@@ -190,29 +190,40 @@ namespace NavigationSim.UnityLayer.UI
         private void OpenConning()
         {
             CachePanels();
-            _conning?.Open();
+            OpenOrDock("conning", () => _conning?.Open());
             Close();
         }
 
         private void OpenChart()
         {
             CachePanels();
-            _chart?.Open();
+            OpenOrDock("chart", () => _chart?.Open());
             Close();
         }
 
         private void OpenRadar()
         {
             CachePanels();
-            _radar?.Open();
+            OpenOrDock("radar", () => _radar?.Open());
             Close();
         }
 
         private void OpenAis()
         {
             CachePanels();
-            _ais?.Open();
+            OpenOrDock("ais", () => _ais?.Open());
             Close();
+        }
+
+        private static void OpenOrDock(string instrumentId, System.Action fallbackOpen)
+        {
+            var rig = BridgeConsoleDisplayRig.Instance;
+            if (rig != null && rig.TryShow(instrumentId))
+            {
+                return;
+            }
+
+            fallbackOpen?.Invoke();
         }
 
         private void OpenBearing()
@@ -225,10 +236,15 @@ namespace NavigationSim.UnityLayer.UI
         private void CloseAllInstruments()
         {
             CachePanels();
-            _conning?.Close();
-            _chart?.Close();
-            _radar?.Close();
-            _ais?.Close();
+            // Docked console instruments stay visible; only floaters / overlays close.
+            if (BridgeConsoleDisplayRig.Instance == null)
+            {
+                _conning?.Close();
+                _chart?.Close();
+                _radar?.Close();
+                _ais?.Close();
+            }
+
             _bearing?.Close();
             Close();
         }
