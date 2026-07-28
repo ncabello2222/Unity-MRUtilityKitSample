@@ -25,6 +25,13 @@ namespace NavigationSim.Core
         private double _rollVel;
         private double _pitchVel;
 
+        // Surface probe results, refreshed on their own cadence rather than every step.
+        private double _heaveTarget;
+        private double _pitchTarget;
+        private double _rollTarget;
+        private double _sampleAccum;
+        private bool _hasTargets;
+
         /// <summary>When set, seakeeping follows the shared ocean surface.</summary>
         public IOceanSurface Surface { get; set; }
 
@@ -58,6 +65,66 @@ namespace NavigationSim.Core
                 return;
             }
 
+            double lambda = G * env.WavePeriodS * env.WavePeriodS / (2.0 * Math.PI);
+            double sizeFactor = Math.Exp(-1.2 * shipLength / Math.Max(1.0, lambda));
+            double beamSizeFactor = Math.Exp(-0.35 * shipBeam / Math.Max(1.0, lambda));
+
+            // Probe the surface on its own cadence, not on the physics step. Five probes
+            // times four refinement iterations is twenty texture fetches, and the runner
+            // takes timeScale-many sub-steps per frame — 820 fetches a frame at x60, all
+            // of them native interop. Tying the rate to the wave period keeps ~32 samples
+            // per encounter cycle, far more than the second-order filters below can
+            // resolve, while cutting the cost by an order of magnitude at fast time.
+            _sampleAccum += dt;
+            double sampleInterval = Clamp(env.WavePeriodS / 32.0, 0.05, 0.5);
+            if (_sampleAccum >= sampleInterval || !_hasTargets)
+            {
+                _sampleAccum = 0.0;
+                _hasTargets = true;
+                RefreshTargets(state, shipLength, shipBeam, sizeFactor, beamSizeFactor);
+            }
+
+            double rollTarget = _rollTarget;
+
+            // Mild resonance boost for roll near natural period (visual only).
+            double yaw = state.PsiRad;
+            double w0 = 2.0 * Math.PI / env.WavePeriodS;
+            double fromRel = env.WaveFromDeg * Math.PI / 180.0 - yaw;
+            double betaProp = fromRel + Math.PI;
+            double we = Math.Abs(w0 - w0 * w0 * state.StwMs * Math.Cos(betaProp) / G);
+            we = Math.Max(0.05, we);
+            double wRoll = 2.0 * Math.PI / Math.Max(2.0, env.RollNaturalPeriodS);
+            double ratio = we / wRoll;
+            double xi = 0.12;
+            double amplification = 1.0 / Math.Sqrt(Math.Pow(1.0 - ratio * ratio, 2)
+                                   + Math.Pow(2.0 * xi * ratio, 2));
+            amplification = Math.Min(2.2, amplification);
+            rollTarget = Math.Min(22.0, rollTarget * amplification);
+
+            // Second-order filters: inertia + damping (tankers should not slap every ripple).
+            double heaveWn = Clamp(1.4 * sizeFactor + 0.25, 0.35, 1.6);
+            double pitchWn = Clamp(1.2 * sizeFactor + 0.2, 0.3, 1.4);
+            double rollWn = Clamp(wRoll * 0.85, 0.25, 1.2);
+
+            StepMassSpring(ref _heave, ref _heaveVel, _heaveTarget, heaveWn, 0.55, dt);
+            StepMassSpring(ref _pitchDeg, ref _pitchVel, _pitchTarget, pitchWn, 0.50, dt);
+            StepMassSpring(ref _rollDeg, ref _rollVel, rollTarget, rollWn, 0.35, dt);
+
+            // Safety rails only. Clamping heave to ±Hs used to cap the response below what
+            // the surface the ship is standing on actually does — the sea could wash over
+            // the deck while the hull refused to rise with it.
+            _heave = Clamp(_heave, -20.0, 20.0);
+            _pitchDeg = Clamp(_pitchDeg, -18.0, 18.0);
+            _rollDeg = Clamp(_rollDeg, -25.0, 25.0);
+        }
+
+        /// <summary>
+        /// Five-point probe of the surface: centre for heave, bow/stern for pitch,
+        /// port/starboard for roll. The only place that touches <see cref="Surface"/>.
+        /// </summary>
+        private void RefreshTargets(ShipState state, double shipLength, double shipBeam,
+            double sizeFactor, double beamSizeFactor)
+        {
             double halfL = Math.Max(1.0, shipLength * 0.45);
             double halfB = Math.Max(0.5, shipBeam * 0.45);
             double yaw = state.PsiRad;
@@ -77,48 +144,13 @@ namespace NavigationSim.Core
             double hStbd = Surface.SampleHeight(e + sE * halfB, n + sN * halfB, t);
             double hPort = Surface.SampleHeight(e - sE * halfB, n - sN * halfB, t);
 
-            double lambda = G * env.WavePeriodS * env.WavePeriodS / (2.0 * Math.PI);
-            double sizeFactor = Math.Exp(-1.2 * shipLength / Math.Max(1.0, lambda));
-            double beamSizeFactor = Math.Exp(-0.35 * shipBeam / Math.Max(1.0, lambda));
-
-            // Mean-subtract so absolute waterline offsets do not lift the ship.
-            double heaveTarget = hC * Math.Max(0.08, sizeFactor);
+            _heaveTarget = hC * Math.Max(0.08, sizeFactor);
 
             // PitchDeg > 0 = bow down; RollDeg > 0 = starboard down.
-            double pitchTarget = Math.Atan2(hStern - hBow, 2.0 * halfL) * (180.0 / Math.PI)
-                                 * Math.Max(0.08, sizeFactor);
-            double rollTarget = Math.Atan2(hPort - hStbd, 2.0 * halfB) * (180.0 / Math.PI)
-                                * Math.Max(0.1, beamSizeFactor);
-
-            // Mild resonance boost for roll near natural period (visual only).
-            double w0 = 2.0 * Math.PI / env.WavePeriodS;
-            double fromRel = env.WaveFromDeg * Math.PI / 180.0 - yaw;
-            double betaProp = fromRel + Math.PI;
-            double we = Math.Abs(w0 - w0 * w0 * state.StwMs * Math.Cos(betaProp) / G);
-            we = Math.Max(0.05, we);
-            double wRoll = 2.0 * Math.PI / Math.Max(2.0, env.RollNaturalPeriodS);
-            double ratio = we / wRoll;
-            double xi = 0.12;
-            double amplification = 1.0 / Math.Sqrt(Math.Pow(1.0 - ratio * ratio, 2)
-                                   + Math.Pow(2.0 * xi * ratio, 2));
-            amplification = Math.Min(2.2, amplification);
-            rollTarget = Math.Min(22.0, rollTarget * amplification);
-
-            // Second-order filters: inertia + damping (tankers should not slap every ripple).
-            double heaveWn = Clamp(1.4 * sizeFactor + 0.25, 0.35, 1.6);
-            double pitchWn = Clamp(1.2 * sizeFactor + 0.2, 0.3, 1.4);
-            double rollWn = Clamp(wRoll * 0.85, 0.25, 1.2);
-
-            StepMassSpring(ref _heave, ref _heaveVel, heaveTarget, heaveWn, 0.55, dt);
-            StepMassSpring(ref _pitchDeg, ref _pitchVel, pitchTarget, pitchWn, 0.50, dt);
-            StepMassSpring(ref _rollDeg, ref _rollVel, rollTarget, rollWn, 0.35, dt);
-
-            // Safety rails only. Clamping heave to ±Hs used to cap the response below what
-            // the surface the ship is standing on actually does — the sea could wash over
-            // the deck while the hull refused to rise with it.
-            _heave = Clamp(_heave, -20.0, 20.0);
-            _pitchDeg = Clamp(_pitchDeg, -18.0, 18.0);
-            _rollDeg = Clamp(_rollDeg, -25.0, 25.0);
+            _pitchTarget = Math.Atan2(hStern - hBow, 2.0 * halfL) * (180.0 / Math.PI)
+                           * Math.Max(0.08, sizeFactor);
+            _rollTarget = Math.Atan2(hPort - hStbd, 2.0 * halfB) * (180.0 / Math.PI)
+                          * Math.Max(0.1, beamSizeFactor);
         }
 
         private void UpdateParametric(EnvironmentState env, double psiRad, double speedMs,
@@ -202,6 +234,9 @@ namespace NavigationSim.Core
             _phaseHeave = _phasePitch = _phaseRoll = 0.0;
             _heave = _rollDeg = _pitchDeg = 0.0;
             _heaveVel = _rollVel = _pitchVel = 0.0;
+            _heaveTarget = _pitchTarget = _rollTarget = 0.0;
+            _sampleAccum = 0.0;
+            _hasTargets = false;
         }
     }
 }

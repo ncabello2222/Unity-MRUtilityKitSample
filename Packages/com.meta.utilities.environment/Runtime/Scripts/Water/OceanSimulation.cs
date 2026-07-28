@@ -339,6 +339,55 @@ namespace Meta.Utilities.Environment
         }
 
         /// <summary>
+        /// Bilinear fetch of the displacement the last completed iFFT produced, straight
+        /// out of the buffer the job wrote: (x, height, z) in metres, the same triple
+        /// <see cref="DisplacementMap"/> carries in rgb — minus the half-precision round
+        /// trip, and minus the managed Texture2D.GetPixelBilinear interop that seakeeping
+        /// probes paid on every fetch. UV wraps to the patch, matching the map's Repeat.
+        /// <para>
+        /// Only valid once the frame's jobs have completed. Callers go through the
+        /// adapter's EnsureDisplacementReady, which drives <see cref="BeginContextRendering"/>
+        /// first; reading while the iFFT is in flight is a race, and in the Editor the
+        /// NativeArray safety handle will say so rather than return torn data.
+        /// </para>
+        /// </summary>
+        public Vector3 SampleDisplacementBilinear(float u, float v)
+        {
+            var n = m_resolution;
+            // OnEnable leaves m_cachedResolution at 0 until the first UpdateSimulation, so
+            // the buffer's own length is the only trustworthy witness to its shape here.
+            if (!m_displacementResult.IsCreated || m_displacementResult.Length != n * n)
+            {
+                return Vector3.zero;
+            }
+
+            // Texel centres sit at (i + 0.5) / n, so shift before flooring. This is what
+            // GetPixelBilinear does internally; skipping it biases every probe by half a
+            // texel, which at 64 FFT over a 300 m patch is well over two metres of sea.
+            var x = u * n - 0.5f;
+            var y = v * n - 0.5f;
+            var x0 = Mathf.FloorToInt(x);
+            var y0 = Mathf.FloorToInt(y);
+            var fx = x - x0;
+            var fy = y - y0;
+
+            // Repeat wrap. Even for uv in [0,1) the low index reaches -1 and the high one
+            // reaches n, so both ends need folding, not just the high one.
+            x0 = ((x0 % n) + n) % n;
+            y0 = ((y0 % n) + n) % n;
+            var x1 = x0 + 1 == n ? 0 : x0 + 1;
+            var y1 = y0 + 1 == n ? 0 : y0 + 1;
+
+            var row0 = y0 * n;
+            var row1 = y1 * n;
+            var lower = lerp(m_displacementResult[row0 + x0], m_displacementResult[row0 + x1], fx);
+            var upper = lerp(m_displacementResult[row1 + x0], m_displacementResult[row1 + x1], fx);
+            var result = lerp(lower, upper, fy);
+
+            return new Vector3(result.x, result.y, result.z);
+        }
+
+        /// <summary>
         /// Hs = 4 sigma over the elevation channel of the field that just finished,
         /// divided back out by the amplitude it was built with. Runs once per completed
         /// iFFT over data already resident on the main thread (4k-16k floats).

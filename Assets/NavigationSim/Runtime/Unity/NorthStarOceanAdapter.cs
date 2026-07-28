@@ -21,6 +21,9 @@ namespace NavigationSim.UnityLayer
     {
         private const string OceanMaterialResourcePath = "NorthStarCalmOcean";
 
+        /// <summary>Heading step that is allowed to invalidate the spectrum [deg].</summary>
+        private const float HeadingQuantiseDeg = 1f;
+
         private static readonly int OceanRcpScaleId = Shader.PropertyToID("_OceanRcpScale");
         private static readonly int OceanChoppynessId = Shader.PropertyToID("_OceanChoppyness");
         private static readonly int OceanDisplacementId = Shader.PropertyToID("_OceanDisplacement");
@@ -46,7 +49,7 @@ namespace NavigationSim.UnityLayer
         [SerializeField] private float waterLevelOffsetY = -14f;
         [Tooltip("When true, the waterline comes from ExteriorWorldMotion (vessel deck height + freeboard), the same datum the coastline is hung from.")]
         [SerializeField] private bool autoWaterlineFromHull = true;
-        [Tooltip("Auto = 64 on Quest, 128 on PC. High keeps 128 everywhere.")]
+        [Tooltip("Auto = 64 on Quest, 128 on PC. High keeps 128 everywhere. Also sets how many choppyness-inversion steps a height probe takes.")]
         [SerializeField] private OceanQualityMode oceanQuality = OceanQualityMode.Auto;
         [Tooltip("iFFT update rate. Viewer stays at the XR refresh rate; textures are reused between ticks.")]
         [SerializeField] [Range(15f, 72f)] private float simulationUpdateHz = 30f;
@@ -55,6 +58,8 @@ namespace NavigationSim.UnityLayer
         [SerializeField] private bool scrollWavesWithVirtualPosition = true;
         [Tooltip("Drive WaveResponseModel from iFFT height samples (Phase 3).")]
         [SerializeField] private bool bindSeakeepingToSurface = true;
+        [Tooltip("Logs once a second what the wave field is actually doing: how fast it is being told to scroll, how fast it really scrolled, and how many iFFT rebuilds delivered it. Use when the sea looks glued to the ship.")]
+        [SerializeField] private bool logFieldMotion;
 
         private Transform _oceanRoot;
         private OceanSimulation _oceanSimulation;
@@ -69,6 +74,7 @@ namespace NavigationSim.UnityLayer
         private double _north;
         private double _headingDeg;
         private float _patchSize = 64f;
+        private int _sampleDepth = 4;
         private float _waterShiftY;
         private float _oceanClock;
         private double _lastSimTimeS;
@@ -83,6 +89,16 @@ namespace NavigationSim.UnityLayer
         // between spawn and the first SyncSeaState.
         private float _targetHsM = 0.5f;
         private float _amplitudeScale = 1f;
+
+        // Field-motion diagnostics.
+        private float _diagTimer;
+        private Vector2 _diagCommittedOffset;
+        private Vector2 _diagCommittedAtLastReport;
+        private Vector2 _diagLastFrameOffset;
+        private Vector2 _diagFrameAtLastReport;
+        private int _diagIfftTicks;
+        private double _diagLastEast, _diagLastNorth;
+        private bool _diagPrimed;
 
         public static NorthStarOceanAdapter Instance { get; private set; }
 
@@ -162,20 +178,11 @@ namespace NavigationSim.UnityLayer
             }
         }
 
-        private void Update()
-        {
-            // Keep the sampling origin on the live sim pose so bow/stern probes
-            // stay coherent while NavigationSimRunner sub-steps inside this frame.
-            var runner = NavigationSimRunner.Instance;
-            if (runner?.Sim == null)
-            {
-                return;
-            }
-
-            _east = runner.Sim.State.East;
-            _north = runner.Sim.State.North;
-            _headingDeg = runner.Sim.State.HeadingDeg;
-        }
+        // No Update(): it used to copy the raw sim pose into _east/_north/_headingDeg with
+        // a comment about keeping probes coherent, but LateUpdate overwrites all three from
+        // the interpolated pose before anything reads them, and the primary SampleHeight
+        // path goes through ExteriorWorldMotion.GeoToWorld without touching them at all.
+        // The fallback below still seeds them, which is the only case that ever used them.
 
         private void LateUpdate()
         {
@@ -201,6 +208,11 @@ namespace NavigationSim.UnityLayer
 
             UpdateOceanPose();
             TickSimulation();
+
+            if (logFieldMotion)
+            {
+                ReportFieldMotion();
+            }
         }
 
         public void SetVirtualShipPosition(double east, double north, double headingDeg)
@@ -219,6 +231,7 @@ namespace NavigationSim.UnityLayer
 
             // T(u) = f(u + D): features move by -D, so D = -shift tracks the water.
             _oceanSimulation.FieldOffset = new Vector2(-shift.x, -shift.z);
+            _diagLastFrameOffset = _oceanSimulation.FieldOffset;
             Shader.SetGlobalVector(GiantWaveOffsetId, new Vector4(shift.x, 0f, shift.z, 0f));
         }
 
@@ -272,7 +285,7 @@ namespace NavigationSim.UnityLayer
                 world = _pivotPosition + _shipForwardBasis * new Vector3(localE, 0f, localN);
             }
 
-            return SampleHeightIterative(new Vector3(world.x, 0f, world.z), 4);
+            return SampleHeightIterative(new Vector3(world.x, 0f, world.z), _sampleDepth);
         }
 
         public Vector3 SampleNormal(double east, double north, double eps = 1.0)
@@ -325,6 +338,7 @@ namespace NavigationSim.UnityLayer
             SetAutoProperty(_profile, "OceanSettings", new OceanSettings());
 
             var resolution = ResolveSimulationResolution();
+            _sampleDepth = ResolveSampleDepth();
             var simGo = new GameObject("OceanSimulation");
             simGo.transform.SetParent(_oceanRoot, false);
             simGo.SetActive(false);
@@ -349,7 +363,8 @@ namespace NavigationSim.UnityLayer
 
             Debug.Log(
                 $"[NorthStarOceanAdapter] North Star iFFT ocean spawned under OceanRoot " +
-                $"(FFT={resolution}, simHz={simulationUpdateHz:0.#}, quality={oceanQuality}).");
+                $"(FFT={resolution}, simHz={simulationUpdateHz:0.#}, quality={oceanQuality}, " +
+                $"probeDepth={_sampleDepth}).");
         }
 
         private int ResolveSimulationResolution()
@@ -362,6 +377,28 @@ namespace NavigationSim.UnityLayer
                     return 128;
                 default:
                     return IsQuestRuntime() ? 64 : 128;
+            }
+        }
+
+        /// <summary>
+        /// Choppyness-inversion steps per height probe. Each step costs one bilinear
+        /// fetch and walks the sample back toward the texel that displaced onto the
+        /// query point. Step one lands the raw position, step two applies the whole
+        /// correction; the third and fourth only refine it by the damped remainder,
+        /// which at Quest's 64 FFT is a fraction of a texel — the patch runs 300 m odd,
+        /// so a texel is metres wide while the horizontal displacement it is chasing is
+        /// choppyness times amplitude. Two steps on Quest, four where it is free.
+        /// </summary>
+        private int ResolveSampleDepth()
+        {
+            switch (oceanQuality)
+            {
+                case OceanQualityMode.Performance:
+                    return 2;
+                case OceanQualityMode.High:
+                    return 4;
+                default:
+                    return IsQuestRuntime() ? 2 : 4;
             }
         }
 
@@ -451,7 +488,85 @@ namespace NavigationSim.UnityLayer
             }
 
             SyncWaveAmplitude();
+            _diagIfftTicks++;
+            // The offset as it is handed to the spectral shift — the only one the water
+            // actually receives. Diverging from the per-frame value means the throttle,
+            // not the maths, is what the eye is seeing.
+            _diagCommittedOffset = _oceanSimulation.FieldOffset;
             _oceanSimulation.UpdateSimulation(BuildWindVector());
+        }
+
+        /// <summary>
+        /// Answers "is the sea actually scrolling?" with numbers instead of impressions.
+        /// Compares the speed the ship is making through the water — which is exactly how
+        /// fast crests should pass a fixed bridge — against how far the committed field
+        /// offset really moved, and counts the iFFT rebuilds that carried it. A commanded
+        /// speed with no committed travel means the offset is not reaching the field; a
+        /// matching speed means the field is scrolling and the problem is elsewhere.
+        /// </summary>
+        private void ReportFieldMotion()
+        {
+            var runner = NavigationSimRunner.Instance;
+            if (runner?.Sim == null || _oceanSimulation == null)
+            {
+                return;
+            }
+
+            _diagTimer += Time.deltaTime;
+            if (_diagTimer < 1f)
+            {
+                return;
+            }
+
+            ShipState s = runner.Sim.State;
+            if (!_diagPrimed)
+            {
+                _diagPrimed = true;
+                ResetFieldMotionWindow(s);
+                return;
+            }
+
+            float dt = _diagTimer;
+            // Crests should pass the fixed bridge at speed through the water (STW), not
+            // over ground: a ship stopped in a current sees a still sea. Scaled by the
+            // fast-time factor because everything else here is metres per wall-clock
+            // second — comparing them raw would report timeScale x 100% and look like a bug.
+            float fastTime = Mathf.Max(1f, runner.TimeScale);
+            float expected = (float)s.StwMs * fastTime;
+            float commanded = Vector2.Distance(_diagLastFrameOffset, _diagFrameAtLastReport) / dt;
+            float committed = Vector2.Distance(_diagCommittedOffset, _diagCommittedAtLastReport) / dt;
+            double groundRun = Math.Sqrt(
+                (s.East - _diagLastEast) * (s.East - _diagLastEast) +
+                (s.North - _diagLastNorth) * (s.North - _diagLastNorth)) / dt;
+
+            float texel = _patchSize / Mathf.Max(1, _oceanSimulation.Resolution);
+            float perTick = _diagIfftTicks > 0 ? committed * dt / _diagIfftTicks : 0f;
+            float pct = expected > 0.05f ? committed / expected * 100f : 0f;
+
+            Debug.Log(
+                "[NorthStarOceanAdapter] field motion\n" +
+                $"  ship      STW={s.StwMs:F2} m/s   SOG={s.SogMs:F2} m/s   timeScale={fastTime:F0}x\n" +
+                $"  expected scroll = {expected:F2} m/s   (STW x timeScale)   ground run={groundRun:F2} m/s\n" +
+                $"  commanded scroll = {commanded:F2} m/s      (offset computed per frame)\n" +
+                $"  committed scroll = {committed:F2} m/s = {pct:F0}% of STW   (offset the water received)\n" +
+                $"  iFFT rebuilds = {_diagIfftTicks}/s   step per rebuild = {perTick:F2} m   " +
+                $"texel={texel:F1} m   patch={_patchSize:F0} m\n" +
+                $"  offset now = ({_diagLastFrameOffset.x:F1}, {_diagLastFrameOffset.y:F1}) m   " +
+                $"scrollWaves={scrollWavesWithVirtualPosition}   motionBound={(_motion != null && _motion.HasInitialPose)}\n" +
+                $"  amplitude={_oceanSimulation.Amplitude:F3}   unitHs={_oceanSimulation.UnitWaveHeightM:F3} m   " +
+                $"targetHs={_targetHsM:F2} m");
+
+            ResetFieldMotionWindow(s);
+        }
+
+        private void ResetFieldMotionWindow(ShipState s)
+        {
+            _diagTimer = 0f;
+            _diagIfftTicks = 0;
+            _diagFrameAtLastReport = _diagLastFrameOffset;
+            _diagCommittedAtLastReport = _diagCommittedOffset;
+            _diagLastEast = s.East;
+            _diagLastNorth = s.North;
         }
 
         /// <summary>
@@ -490,7 +605,15 @@ namespace NavigationSim.UnityLayer
         {
             // Relative to bridge heading so geographic wave direction reads correctly
             // while ExteriorWorldRoot rotates inversely.
-            float fromRel = _driveFromDeg - (float)_headingDeg;
+            //
+            // Quantised: OceanSimulation rebuilds the whole N^2 spectrum whenever this
+            // vector changes at all, so any rate of turn used to re-run the Phillips job
+            // at the full iFFT rate for the length of the turn. One degree is well under
+            // what the directional spreading can show, and the rigid translation that
+            // actually sells the motion goes through FieldOffset, which stays continuous.
+            float quantisedHeading = Mathf.Round((float)_headingDeg / HeadingQuantiseDeg)
+                                     * HeadingQuantiseDeg;
+            float fromRel = _driveFromDeg - quantisedHeading;
             float rad = fromRel * Mathf.Deg2Rad;
             // Wind-from → blow-toward vector for the spectrum job.
             var local = new Vector3(Mathf.Sin(rad + Mathf.PI), 0f, Mathf.Cos(rad + Mathf.PI)) * _driveWindSpeed;
@@ -629,8 +752,10 @@ namespace NavigationSim.UnityLayer
 
             _oceanSimulation.BeginContextRendering();
 
+            // No _OceanChoppyness here: the Water Realistic graph has no such property —
+            // OceanFFTFinalJob already bakes choppyness into the displacement texture, so
+            // setting it was a no-op that read like a live control.
             _propertyBlock.SetFloat(OceanRcpScaleId, 1.0f / _patchSize);
-            _propertyBlock.SetFloat(OceanChoppynessId, _profile.OceanSettings.Choppyness);
             _propertyBlock.SetTexture(OceanDisplacementId, _oceanSimulation.DisplacementMap);
             _propertyBlock.SetTexture(OceanNormalId, _oceanSimulation.NormalMap);
 
@@ -661,25 +786,27 @@ namespace NavigationSim.UnityLayer
             _jobsCompletedThisFrame = true;
         }
 
+        /// <summary>
+        /// Inverts the horizontal (choppyness) displacement to find the elevation the
+        /// surface actually shows at this world XZ. Reads the iFFT's own float3 buffer
+        /// rather than Texture2D.GetPixelBilinear: same field, same wrap, but full
+        /// precision instead of RGBAHalf and no managed texture interop per fetch —
+        /// which is what the probes were spending on Quest. Requires the frame's jobs to
+        /// be complete; every caller goes through EnsureDisplacementReady first.
+        /// </summary>
         private float SampleHeightIterative(Vector3 position, int depth)
         {
-            var map = _oceanSimulation.DisplacementMap;
-            if (map == null)
-            {
-                return 0f;
-            }
-
             // Wave elevation relative to mean sea level (not the visual waterline offset).
             float height = 0f;
             for (int i = 0; i < depth; i++)
             {
-                var uv = new Vector2(
+                var displacement = _oceanSimulation.SampleDisplacementBilinear(
                     Frac(position.x / _patchSize),
                     Frac(position.z / _patchSize));
-                var displacement = map.GetPixelBilinear(uv.x, uv.y);
-                position.x -= displacement.r / (i + 1);
-                position.z -= displacement.b / (i + 1);
-                height = displacement.g;
+                // (x, height, z), the same triple the map carries in rgb.
+                position.x -= displacement.x / (i + 1);
+                position.z -= displacement.z / (i + 1);
+                height = displacement.y;
             }
 
             return height;
