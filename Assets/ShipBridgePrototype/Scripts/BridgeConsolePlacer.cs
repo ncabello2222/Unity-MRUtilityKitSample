@@ -213,15 +213,15 @@ namespace ShipBridgePrototype
             var wallCenter = wall.GetAnchorCenter();
             console.PlaceAgainstWall(wallCenter, inward, floorY, wallWidth);
 
-            // Wire grab AFTER width scale / placement so the handle collider is
-            // compensated for the non-uniform root scale and sits on the desk lip.
+            // Wire grab AFTER width scale / placement so the collider matches
+            // Console_Handle (or the desk lip proxy) at the final pose.
             height.EnsureInteractable();
             _placedThisSession = true;
 
             Debug.Log(
                 $"[BridgeConsolePlacer] Placed console on '{wall.name}' " +
                 $"width={wallWidth:F2}m floorY={floorY:F2} inward={inward}. " +
-                "Height handle ready (proximity + distance grab + grip fallback).",
+                "Height handle on Console_Handle (proximity + distance grab + grip fallback).",
                 console);
         }
 

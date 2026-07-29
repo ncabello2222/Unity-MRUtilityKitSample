@@ -212,11 +212,14 @@ namespace NavigationSim.UnityLayer.UI
         {
             TearDownRig();
 
-            // Same trick as the height handle: hang off the console root so wall
-            // stretch is countered explicitly, instead of inheriting Upper scale.
+            // Hang off Console_Upper so instruments rise with the desk when height changes.
+            // Counter wall-stretch from the console root explicitly (Upper keeps localScale 1).
             var go = new GameObject("ConsoleDisplays");
             _rigRoot = go.transform;
-            _rigRoot.SetParent(_console.transform, false);
+            var parent = _console.ConsoleUpper != null
+                ? _console.ConsoleUpper
+                : _console.transform;
+            _rigRoot.SetParent(parent, false);
             _rigRoot.localPosition = Vector3.zero;
             _rigRoot.localRotation = Quaternion.identity;
             _rigRoot.localScale = Vector3.one;
