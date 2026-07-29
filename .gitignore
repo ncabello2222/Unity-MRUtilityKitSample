@@ -88,3 +88,11 @@ crashlytics-build.properties
 # External research repos for the naval simulator R&D (not Unity assets,
 # not part of this sample's git history — see NavalSimResearch/README.md)
 /NavalSimResearch/sources/
+
+# Python bytecode from the DA-Assets MCP server. Rewritten on every run of the
+# server, so it showed up as a dozen permanently dirty files in git status.
+# Unity mints a .meta per cache dir as well; that one sits outside the dir, so
+# it needs its own rule.
+__pycache__/
+*.py[cod]
+**/__pycache__.meta
