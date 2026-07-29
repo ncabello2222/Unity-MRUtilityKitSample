@@ -25,6 +25,16 @@ namespace NavigationSim.UnityLayer
         private static void Ensure()
         {
             NavigationSimRunner runner = NavigationSimRunner.EnsureInstance();
+            if (runner.GetComponent<DisplayRefreshRate>() == null)
+            {
+                runner.gameObject.AddComponent<DisplayRefreshRate>();
+            }
+
+            if (runner.GetComponent<FoveatedRendering>() == null)
+            {
+                runner.gameObject.AddComponent<FoveatedRendering>();
+            }
+
             if (runner.GetComponent<UI.SimulationConfigPanel>() == null)
             {
                 runner.gameObject.AddComponent<UI.SimulationConfigPanel>();

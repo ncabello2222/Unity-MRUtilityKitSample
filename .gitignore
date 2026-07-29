@@ -61,6 +61,7 @@ sysinfo.txt
 *.aab
 *.unitypackage
 *.app
+*_BurstDebugInformation_DoNotShip/
 
 # Crashlytics generated file
 crashlytics-build.properties
