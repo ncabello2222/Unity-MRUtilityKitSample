@@ -117,7 +117,14 @@ namespace ShipBridgePrototype
                 box = handleGo.AddComponent<BoxCollider>();
             }
 
-            FitGrabColliderToHandle(handleGo, box);
+            // World-ish grab volume on the meson lip, compensated for root width scale.
+            var lossy = handleGo.transform.lossyScale;
+            box.center = Vector3.zero;
+            box.size = new Vector3(
+                SafeDiv(0.28f, Mathf.Abs(lossy.x)),
+                SafeDiv(0.14f, Mathf.Abs(lossy.y)),
+                SafeDiv(0.22f, Mathf.Abs(lossy.z)));
+            box.isTrigger = false;
 
             var body = handleGo.GetComponent<Rigidbody>();
             if (body == null)
@@ -152,53 +159,6 @@ namespace ShipBridgePrototype
             // Same host as Rigidbody — required so GetComponentsInChildren<Collider>() works.
             EnsureComponentInteractables(handleGo, body, grabbable);
             BindGrabbableEvents();
-        }
-
-        /// <summary>
-        /// Matches the grab volume to the authored handle mesh. Falls back to a small
-        /// lip-sized box when the host has no renderer (synthetic HeightHandle).
-        /// </summary>
-        private static void FitGrabColliderToHandle(GameObject handleGo, BoxCollider box)
-        {
-            var renderer = handleGo.GetComponent<Renderer>();
-            if (renderer == null)
-            {
-                renderer = handleGo.GetComponentInChildren<Renderer>();
-            }
-
-            if (renderer != null && renderer.transform == handleGo.transform)
-            {
-                var local = renderer.localBounds;
-                box.center = local.center;
-                // Slight pad so palm / controller grip catches the mango easily.
-                box.size = Vector3.Max(local.size * 1.15f, new Vector3(0.08f, 0.06f, 0.08f));
-                box.isTrigger = false;
-                return;
-            }
-
-            if (renderer != null)
-            {
-                var world = renderer.bounds;
-                var t = handleGo.transform;
-                var localCenter = t.InverseTransformPoint(world.center);
-                var localSize = new Vector3(
-                    SafeDiv(world.size.x, Mathf.Abs(t.lossyScale.x)),
-                    SafeDiv(world.size.y, Mathf.Abs(t.lossyScale.y)),
-                    SafeDiv(world.size.z, Mathf.Abs(t.lossyScale.z)));
-                box.center = localCenter;
-                box.size = Vector3.Max(localSize * 1.15f, new Vector3(0.08f, 0.06f, 0.08f));
-                box.isTrigger = false;
-                return;
-            }
-
-            // Synthetic proxy: world-ish lip volume, compensated for root width scale.
-            var lossy = handleGo.transform.lossyScale;
-            box.center = Vector3.zero;
-            box.size = new Vector3(
-                SafeDiv(0.28f, Mathf.Abs(lossy.x)),
-                SafeDiv(0.14f, Mathf.Abs(lossy.y)),
-                SafeDiv(0.22f, Mathf.Abs(lossy.z)));
-            box.isTrigger = false;
         }
 
         private void EnsureComponentInteractables(GameObject host, Rigidbody body, Grabbable grab)

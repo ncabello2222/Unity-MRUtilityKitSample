@@ -24,7 +24,6 @@ namespace ShipBridgePrototype
         [SerializeField] private Transform consoleMeson;
         [SerializeField] private Transform consoleTeclado;
         [SerializeField] private Transform consoleInclinado;
-        [SerializeField] private Transform consoleHandle;
         [SerializeField] private Transform heightHandle;
 
         [Header("Width (wall length)")]
@@ -54,7 +53,6 @@ namespace ShipBridgePrototype
         public Transform ConsoleMeson => consoleMeson;
         public Transform ConsoleInclinado => consoleInclinado;
         public Transform ConsoleTeclado => consoleTeclado;
-        public Transform ConsoleHandle => consoleHandle;
         public Transform HeightHandle => heightHandle;
         public float TargetBaseHeight => _targetBaseHeight;
         public float DefaultBaseHeight => defaultBaseHeightMeters;
@@ -74,8 +72,8 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
-        /// Resolves child names from the FBX, groups the upper desk pieces (including
-        /// <c>Console_Handle</c>) under Console_Upper, and wires the height grab host.
+        /// Resolves child names from the FBX, groups the upper desk pieces under
+        /// Console_Upper, and creates a synthetic height-grab proxy on the meson lip.
         /// </summary>
         public void EnsureHierarchy()
         {
@@ -105,11 +103,6 @@ namespace ShipBridgePrototype
                                   ?? FindChildTransform("Console_Incline");
             }
 
-            if (consoleHandle == null)
-            {
-                consoleHandle = FindChildTransform("Console_Handle");
-            }
-
             if (consoleBase == null || consoleMeson == null)
             {
                 Debug.LogError(
@@ -136,15 +129,10 @@ namespace ShipBridgePrototype
                 }
             }
 
-            // Everything above the pedestal must ride with Console_Upper when height changes.
+            // Desk pieces ride with Console_Upper when height changes.
             ReparentUnderUpper(consoleMeson);
             ReparentUnderUpper(consoleTeclado);
             ReparentUnderUpper(consoleInclinado);
-            ReparentUnderUpper(consoleHandle);
-            ReparentUnderUpper(FindChildTransform("Console_Desk"));
-            ReparentUnderUpper(FindChildTransform("Console_Body"));
-            ReparentUnderUpper(FindChildTransform("Console_Keys"));
-            ReparentUnderUpper(FindChildTransform("Console_Incline"));
 
             EnsureHeightHandle();
             ResolveLengthAxis();
@@ -273,54 +261,29 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
-        /// Keeps the grab collider on the authored <c>Console_Handle</c> mesh when present.
-        /// Synthetic proxies snap to that mesh (or the meson lip) and stay under Upper so
-        /// they rise with the desk.
+        /// Keeps the grab proxy on the room-facing meson lip, parented to
+        /// <see cref="consoleUpper"/> so it rises with the desk.
         /// </summary>
         public void RefreshHeightHandlePose()
         {
             EnsureHeightHandleObject();
-            if (heightHandle == null)
+            if (heightHandle == null || consoleMeson == null)
             {
                 return;
             }
 
-            // Authored FBX handle: leave the mesh where the artist put it.
-            if (IsAuthoredHandleMesh(heightHandle))
-            {
-                if (consoleUpper != null && heightHandle.parent != consoleUpper)
-                {
-                    heightHandle.SetParent(consoleUpper, worldPositionStays: true);
-                }
-
-                return;
-            }
-
-            // Synthetic proxy: sit on the visual handle, else the room-facing meson lip.
-            Transform anchor = consoleHandle != null ? consoleHandle : consoleMeson;
-            if (anchor == null)
-            {
-                return;
-            }
-
-            var worldBounds = GetWorldRendererBounds(anchor);
-            Vector3 pose;
-            if (consoleHandle != null && anchor == consoleHandle)
-            {
-                pose = worldBounds.center;
-            }
-            else
-            {
-                pose = worldBounds.ClosestPoint(worldBounds.center + transform.forward * 10f);
-                pose.y = Mathf.Lerp(worldBounds.min.y, worldBounds.max.y, 0.35f);
-            }
+            var worldBounds = GetWorldRendererBounds(consoleMeson);
+            // Front of the desk toward the room (+forward after wall placement).
+            var front = worldBounds.ClosestPoint(worldBounds.center + transform.forward * 10f);
+            // Slightly below the desk top — grab lip.
+            front.y = Mathf.Lerp(worldBounds.min.y, worldBounds.max.y, 0.35f);
 
             if (consoleUpper != null && heightHandle.parent != consoleUpper)
             {
                 heightHandle.SetParent(consoleUpper, worldPositionStays: true);
             }
 
-            heightHandle.position = pose;
+            heightHandle.position = front;
             heightHandle.rotation = transform.rotation;
             heightHandle.localScale = Vector3.one;
         }
@@ -349,13 +312,12 @@ namespace ShipBridgePrototype
                 consoleBase.localPosition = p;
             }
 
-            // Always raise the whole upper assembly (desk, screens, handle) with Base.
+            // Always raise the whole upper assembly (desk + docked canvases) with Base.
             var upper = _upperStartLocal;
             upper.y = _upperStartLocal.y + HeightDelta;
             consoleUpper.localPosition = upper;
 
-            // Keep a synthetic grab proxy glued to the handle/lip after the raise.
-            if (heightHandle != null && !IsAuthoredHandleMesh(heightHandle))
+            if (heightHandle != null && consoleMeson != null)
             {
                 RefreshHeightHandlePose();
             }
@@ -369,15 +331,9 @@ namespace ShipBridgePrototype
 
         private void EnsureHeightHandleObject()
         {
-            if (consoleHandle == null)
+            if (consoleMeson == null)
             {
-                consoleHandle = FindChildTransform("Console_Handle");
-            }
-
-            // Prefer the authored mango mesh as the grab host.
-            if (heightHandle == null && consoleHandle != null)
-            {
-                heightHandle = consoleHandle;
+                return;
             }
 
             if (heightHandle == null)
@@ -388,7 +344,7 @@ namespace ShipBridgePrototype
                     existing = consoleUpper.Find("HeightHandle");
                 }
 
-                if (existing == null && consoleMeson != null)
+                if (existing == null)
                 {
                     existing = consoleMeson.Find("HeightHandle");
                 }
@@ -397,16 +353,11 @@ namespace ShipBridgePrototype
                 {
                     heightHandle = existing;
                 }
-                else if (consoleMeson != null)
+                else
                 {
                     var handleGo = new GameObject("HeightHandle");
                     heightHandle = handleGo.transform;
                 }
-            }
-
-            if (heightHandle == null)
-            {
-                return;
             }
 
             if (consoleUpper != null && heightHandle.parent != consoleUpper)
@@ -418,11 +369,6 @@ namespace ShipBridgePrototype
             {
                 heightHandle.gameObject.AddComponent<BoxCollider>();
             }
-        }
-
-        private static bool IsAuthoredHandleMesh(Transform handle)
-        {
-            return handle != null && handle.name == "Console_Handle";
         }
 
         private static Bounds GetWorldRendererBounds(Transform root)
@@ -507,10 +453,7 @@ namespace ShipBridgePrototype
 
         private Bounds GetCombinedLocalBounds()
         {
-            var parts = new[]
-            {
-                consoleBase, consoleMeson, consoleTeclado, consoleInclinado, consoleHandle
-            };
+            var parts = new[] { consoleBase, consoleMeson, consoleTeclado, consoleInclinado };
             var has = false;
             var bounds = new Bounds(Vector3.zero, Vector3.zero);
             foreach (var part in parts)
