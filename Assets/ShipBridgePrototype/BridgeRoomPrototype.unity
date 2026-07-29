@@ -1776,6 +1776,11 @@ MonoBehaviour:
   buqueActivo: 
   masaVelEquilibrio: 
   reiniciarBuque: 0
+  paredProa: 
+  proaCalibrada: 0
+  paredProaAnterior: 0
+  paredProaSiguiente: 0
+  confirmarProa: 0
   rpmNominal: 156
   mcrKw: 36000
   cteTiempoMotorS: 18
@@ -2630,6 +2635,8 @@ MonoBehaviour:
   seakeepingVisualGain: 1
   applySeakeepingAttitudeToExterior: 0
   pitchLeverGain: 1
+  sun: {fileID: 0}
+  rotateSunWithExterior: 1
   scenarioSeaLevelLocalY: -14.5
 --- !u!114 &2051625789
 MonoBehaviour:

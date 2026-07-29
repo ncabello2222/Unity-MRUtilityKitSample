@@ -44,6 +44,17 @@ namespace ShipBridgePrototype
         [Range(0f, 1f)]
         [SerializeField] private float pitchLeverGain = 1f;
 
+        [Header("Sun")]
+        [Tooltip("Directional light standing in for the sun. Left empty it resolves to RenderSettings.sun, then to the first directional light in the scene.")]
+        [SerializeField] private Light sun;
+
+        [Tooltip(
+            "Turn the sun with the exterior so it keeps its geographic bearing. With this " +
+            "off the light is nailed to the room, which means it is nailed to the bow: a 90 " +
+            "degree turn leaves the sun exactly where it was in the windows, and the glitter " +
+            "on the water follows the ship round.")]
+        [SerializeField] private bool rotateSunWithExterior = true;
+
         [Header("Sea datum")]
         [Tooltip(
             "Where the loaded scenario puts mean sea level, in ExteriorWorld local Y. The " +
@@ -60,6 +71,8 @@ namespace ShipBridgePrototype
         private float _bridgeAboveSeaM = 14.5f;
         /// <summary>Scenario datum currently baked into ExteriorWorld.Root by the last apply.</summary>
         private Vector3 _appliedDatum;
+        private Quaternion _initialSunRotation = Quaternion.identity;
+        private bool _hasSunPose;
 
         public ExteriorWorldRoot ExteriorWorld => exteriorWorld;
         public Transform ShipPivot => shipPivot;
@@ -229,6 +242,45 @@ namespace ShipBridgePrototype
             _initialExteriorPosition =
                 shipPos + shipRot * (invShip0 * (rootPos - SimOriginInitialPosition));
             _initialExteriorRotation = shipRot * invShip0 * root.rotation;
+
+            // Same back-solve for the sun: shipRot * invShip0 is the inverse of the
+            // R0 * R^-1 already standing in its transform, so this recovers the bearing
+            // it was captured with instead of baking the current turn into it.
+            ResolveSun();
+            if (sun != null)
+            {
+                _initialSunRotation = shipRot * invShip0 * sun.transform.rotation;
+                _hasSunPose = true;
+            }
+        }
+
+        /// <summary>
+        /// Finds the light that plays the sun. RenderSettings.sun is the one the sky and
+        /// the ambient gradient already agree on, so it is preferred over whatever
+        /// directional light happens to be first in the scene.
+        /// </summary>
+        private void ResolveSun()
+        {
+            if (sun != null)
+            {
+                return;
+            }
+
+            sun = RenderSettings.sun;
+            if (sun != null)
+            {
+                return;
+            }
+
+            var lights = FindObjectsByType<Light>();
+            for (int i = 0; i < lights.Length; i++)
+            {
+                if (lights[i] != null && lights[i].type == LightType.Directional)
+                {
+                    sun = lights[i];
+                    return;
+                }
+            }
         }
 
         private void ResolveReferences()
@@ -262,6 +314,15 @@ namespace ShipBridgePrototype
             _initialExteriorPosition = exteriorWorld.Root.position - _appliedDatum;
             _initialExteriorRotation = exteriorWorld.Root.rotation;
             _hasInitialPose = true;
+
+            ResolveSun();
+            if (sun != null)
+            {
+                // Captured at psi = 0 (this method resets the ship below), so this is the
+                // sun's true geographic bearing and every later pose is derived from it.
+                _initialSunRotation = sun.transform.rotation;
+                _hasSunPose = true;
+            }
 
             var runner = NavigationSimRunner.EnsureInstance();
             runner.ResetShip();
@@ -335,6 +396,15 @@ namespace ShipBridgePrototype
 
             exteriorWorld.Root.SetPositionAndRotation(newPos, newRot);
             _appliedDatum = datum;
+
+            // The sun is scenery too. Left in the room frame it sits at a fixed bearing
+            // from the bow, so a 90 degree turn moves the coastline across the windows and
+            // leaves the sun exactly where it was — and the specular streak on the water
+            // with it. Same R0 * R^-1 the terrain gets, applied to the light's direction.
+            if (rotateSunWithExterior && _hasSunPose && sun != null)
+            {
+                sun.transform.rotation = shipRot0 * (invShip * _initialSunRotation);
+            }
         }
 
         /// <summary>

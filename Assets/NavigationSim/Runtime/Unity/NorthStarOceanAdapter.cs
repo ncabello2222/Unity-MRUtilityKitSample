@@ -44,6 +44,9 @@ namespace NavigationSim.UnityLayer
         /// </summary>
         private static readonly int OceanGeoRotationId = Shader.PropertyToID("_OceanGeoRotation");
         private static readonly int SmoothnessCloseId = Shader.PropertyToID("_Smoothness_Close");
+        private static readonly int NormalMapId = Shader.PropertyToID("_Normal_Map");
+        private static readonly int NormalMapScrollId = Shader.PropertyToID("_Normal_Map_Scroll");
+        private static readonly int NormalMapStrengthId = Shader.PropertyToID("_Normal_Map_Strength");
 
         public enum OceanQualityMode
         {
@@ -85,6 +88,8 @@ namespace NavigationSim.UnityLayer
         private ExteriorWorldMotion _motion;
         private EnvironmentProfile _profile;
         private MaterialPropertyBlock _propertyBlock;
+        private Material _oceanMaterialSource;
+        private bool _loggedDetailNormals;
         private Vector3 _pivotPosition;
         private Quaternion _shipForwardBasis = Quaternion.identity;
         private bool _hasPivot;
@@ -528,23 +533,78 @@ namespace NavigationSim.UnityLayer
             if (oceanMaterial != null && oceanMaterial.shader != null
                 && oceanMaterial.shader.name != "Hidden/InternalErrorShader")
             {
+                if (_oceanMaterialSource == null)
+                {
+                    _oceanMaterialSource = Resources.Load<Material>(OceanMaterialResourcePath);
+                }
+
                 return;
             }
 
-            oceanMaterial = Resources.Load<Material>(OceanMaterialResourcePath);
+            _oceanMaterialSource = Resources.Load<Material>(OceanMaterialResourcePath);
 
 #if UNITY_EDITOR
-            if (oceanMaterial == null)
+            if (_oceanMaterialSource == null)
             {
-                oceanMaterial = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(
+                _oceanMaterialSource = UnityEditor.AssetDatabase.LoadAssetAtPath<Material>(
                     "Packages/com.meta.utilities.environment/Runtime/Data/Environment/Ocean/Calm Ocean Day.mat");
             }
 #endif
 
-            if (oceanMaterial != null)
+            if (_oceanMaterialSource != null)
             {
                 // Instance so runtime property tweaks do not dirty the shared asset.
-                oceanMaterial = new Material(oceanMaterial) { name = "NorthStarOceanRuntime" };
+                oceanMaterial = new Material(_oceanMaterialSource) { name = "NorthStarOceanRuntime" };
+                SyncDetailNormalsFromSource();
+            }
+        }
+
+        /// <summary>
+        /// The ocean renders a cloned material. Keep detail-normal props mirrored from
+        /// <c>Resources/NorthStarCalmOcean</c> so Inspector edits to the asset show up
+        /// without needing a domain reload mid-session.
+        /// </summary>
+        private void SyncDetailNormalsFromSource()
+        {
+            if (oceanMaterial == null || _oceanMaterialSource == null)
+            {
+                return;
+            }
+
+            if (_oceanMaterialSource.HasProperty(NormalMapId))
+            {
+                var tex = _oceanMaterialSource.GetTexture(NormalMapId);
+                if (tex != null)
+                {
+                    oceanMaterial.SetTexture(NormalMapId, tex);
+                }
+            }
+
+            if (_oceanMaterialSource.HasProperty(NormalMapScrollId))
+            {
+                oceanMaterial.SetVector(NormalMapScrollId, _oceanMaterialSource.GetVector(NormalMapScrollId));
+            }
+
+            if (_oceanMaterialSource.HasProperty(NormalMapStrengthId))
+            {
+                oceanMaterial.SetFloat(NormalMapStrengthId, _oceanMaterialSource.GetFloat(NormalMapStrengthId));
+            }
+
+            if (!_loggedDetailNormals)
+            {
+                _loggedDetailNormals = true;
+                var scroll = oceanMaterial.HasProperty(NormalMapScrollId)
+                    ? oceanMaterial.GetVector(NormalMapScrollId)
+                    : Vector4.zero;
+                float strength = oceanMaterial.HasProperty(NormalMapStrengthId)
+                    ? oceanMaterial.GetFloat(NormalMapStrengthId)
+                    : -1f;
+                var tex = oceanMaterial.HasProperty(NormalMapId)
+                    ? oceanMaterial.GetTexture(NormalMapId)
+                    : null;
+                Debug.Log(
+                    $"[NorthStarOceanAdapter] detail normals: scroll=({scroll.x:F2},{scroll.y:F2}) " +
+                    $"strength={strength:F2} tex={(tex != null ? tex.name : "NULL")}");
             }
         }
 
@@ -878,6 +938,8 @@ namespace NavigationSim.UnityLayer
             // No _OceanChoppyness here: the Water Realistic graph has no such property —
             // OceanFFTFinalJob already bakes choppyness into the displacement texture, so
             // setting it was a no-op that read like a live control.
+            SyncDetailNormalsFromSource();
+
             _propertyBlock.SetFloat(OceanRcpScaleId, 1.0f / _patchSize);
             _propertyBlock.SetVector(OceanGeoRotationId, _geoFrame);
             _propertyBlock.SetTexture(OceanDisplacementId, _oceanSimulation.DisplacementMap);

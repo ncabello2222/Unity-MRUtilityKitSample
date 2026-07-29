@@ -616,18 +616,26 @@ namespace NavigationSim.UnityLayer.UI
             root.localScale = Vector3.one * 0.001f;
         }
 
+        /// <summary>
+        /// Reused across calls because the measurement runs every LateUpdate: the
+        /// array-returning overload allocated a fresh Renderer[] per frame, and that
+        /// GC pressure surfaces as dropped frames — which on a headset reads as
+        /// judder while the player walks, not as a framerate number.
+        /// </summary>
+        private static readonly List<Renderer> RendererBuffer = new List<Renderer>(64);
+
         private static Bounds GetWorldRendererBounds(Transform root)
         {
-            var renderers = root.GetComponentsInChildren<Renderer>();
-            if (renderers == null || renderers.Length == 0)
+            root.GetComponentsInChildren(RendererBuffer);
+            if (RendererBuffer.Count == 0)
             {
                 return new Bounds(root.position, new Vector3(1.2f, 0.35f, 0.4f));
             }
 
-            var bounds = renderers[0].bounds;
-            for (var i = 1; i < renderers.Length; i++)
+            var bounds = RendererBuffer[0].bounds;
+            for (var i = 1; i < RendererBuffer.Count; i++)
             {
-                bounds.Encapsulate(renderers[i].bounds);
+                bounds.Encapsulate(RendererBuffer[i].bounds);
             }
 
             return bounds;
