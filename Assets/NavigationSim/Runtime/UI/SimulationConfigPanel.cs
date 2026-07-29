@@ -34,6 +34,7 @@ namespace NavigationSim.UnityLayer.UI
         private readonly string[] _tabs = { "BUQUE", "MOTOR", "HÉLICE", "GOBIERNO", "ENTORNO", "INSTRUM." };
 
         private NavigationSimRunner _runner;
+        private BridgeRoomMapper _bridgeMapper;
         private GameObject _canvasRoot;
         private RectTransform _contentRoot;
         private readonly List<Image> _tabImages = new List<Image>();
@@ -47,6 +48,15 @@ namespace NavigationSim.UnityLayer.UI
         private void Awake()
         {
             _runner = GetComponent<NavigationSimRunner>();
+            CacheBridgeMapper();
+        }
+
+        private void CacheBridgeMapper()
+        {
+            if (_bridgeMapper == null)
+            {
+                _bridgeMapper = FindAnyObjectByType<BridgeRoomMapper>();
+            }
         }
 
         private void Update()
@@ -235,6 +245,52 @@ namespace NavigationSim.UnityLayer.UI
                     _runner.ApplyVessel(i);
                     ShowTab(0);
                 });
+
+            CacheBridgeMapper();
+            if (_bridgeMapper != null)
+            {
+                AddCycleRow("Pared proa (ventanas)",
+                    _bridgeMapper.GetFrontWallOptionLabels(),
+                    () =>
+                    {
+                        var index = _bridgeMapper.GetFrontWallSelectionIndex(out var count);
+                        if (count <= 0)
+                        {
+                            return 0;
+                        }
+
+                        return Mathf.Clamp(index, 0, count - 1);
+                    },
+                    i =>
+                    {
+                        _bridgeMapper.SelectFrontWallAtIndex(i);
+                        BridgeOrientationCalibration.Instance?.OnExternalFrontWallChanged();
+                        ShowTab(0);
+                    });
+
+                AddLiveRow("Proa / calibración", () =>
+                {
+                    var frame = BridgeReferenceFrame.Instance;
+                    var calibrated = frame != null && frame.IsCalibrated;
+                    var name = _bridgeMapper.GetFrontWallDisplayName();
+                    return calibrated ? $"OK — {name}" : $"Pendiente — {name}";
+                });
+
+                AddActionRow("Confirmar proa", "CONFIRMAR VENTANAS", () =>
+                {
+                    var cal = BridgeOrientationCalibration.Instance;
+                    if (cal != null)
+                    {
+                        cal.ConfirmCurrentFront();
+                    }
+                    else
+                    {
+                        _bridgeMapper.ConfirmFrontCalibration();
+                    }
+
+                    ShowTab(0);
+                }, AccentColor);
+            }
 
             AddLiveRow("Casco visual", () =>
             {

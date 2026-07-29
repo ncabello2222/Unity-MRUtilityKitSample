@@ -31,7 +31,6 @@ namespace NavigationSim.UnityLayer.UI
         private Transform _rigRoot;
         private Slot _left;
         private Slot _right;
-        private Coroutine _attachRoutine;
         private bool _attached;
 
         private readonly List<IBridgeDockableInstrument> _leftBank = new();
@@ -63,32 +62,15 @@ namespace NavigationSim.UnityLayer.UI
             }
         }
 
-        private void OnEnable()
-        {
-            if (_attachRoutine == null)
-            {
-                _attachRoutine = StartCoroutine(AttachWhenReady());
-            }
-        }
-
-        private void OnDisable()
-        {
-            if (_attachRoutine != null)
-            {
-                StopCoroutine(_attachRoutine);
-                _attachRoutine = null;
-            }
-        }
-
         private void LateUpdate()
         {
-            if (!_attached || _console == null || _rigRoot == null)
+            if (!EnsureAttached())
             {
                 return;
             }
 
-            // Neutralize non-uniform wall-width scale on the console root so
-            // docked canvases keep correct aspect ratio.
+            // Parent is the console root (wall-stretched). Counter that scale so
+            // slot children keep uniform world meters and correct aspect.
             var parentScale = _console.transform.lossyScale;
             _rigRoot.localScale = new Vector3(
                 SafeInv(parentScale.x),
@@ -116,43 +98,54 @@ namespace NavigationSim.UnityLayer.UI
 
         public void CycleRight(int direction) => CycleSlot(_right, direction);
 
-        private IEnumerator AttachWhenReady()
+        /// <summary>
+        /// Keeps trying after room/console regen. A one-shot 12s attach was leaving
+        /// instruments undocked (PlaceInFront at ~2 m wide) when the console arrived late.
+        /// </summary>
+        private bool EnsureAttached()
         {
-            const float timeout = 12f;
-            var elapsed = 0f;
-            while (elapsed < timeout && !_attached)
+            if (_attached)
             {
-                if (TryBindConsole())
+                if (_console != null && _console.IsPlaced && _rigRoot != null)
                 {
-                    EnsureBanks();
-                    if (_leftBank.Count > 0 || _rightBank.Count > 0)
-                    {
-                        foreach (var instrument in _leftBank)
-                        {
-                            instrument.SetDocked(true);
-                        }
-
-                        foreach (var instrument in _rightBank)
-                        {
-                            instrument.SetDocked(true);
-                        }
-
-                        BuildRig();
-                        _attached = true;
-                        ShowDefaults();
-                        Debug.Log(
-                            "[BridgeConsoleDisplayRig] Docked left=" +
-                            (_left.Active?.DisplayName ?? "?") +
-                            " right=" + (_right.Active?.DisplayName ?? "?"));
-                        break;
-                    }
+                    return true;
                 }
 
-                elapsed += Time.unscaledDeltaTime;
-                yield return null;
+                TearDownRig();
+                _attached = false;
+                _console = null;
             }
 
-            _attachRoutine = null;
+            if (!TryBindConsole())
+            {
+                return false;
+            }
+
+            EnsureBanks();
+            if (_leftBank.Count == 0 && _rightBank.Count == 0)
+            {
+                return false;
+            }
+
+            foreach (var instrument in _leftBank)
+            {
+                instrument.SetDocked(true);
+            }
+
+            foreach (var instrument in _rightBank)
+            {
+                instrument.SetDocked(true);
+            }
+
+            BuildRig();
+            LayoutSlots();
+            _attached = true;
+            ShowDefaults();
+            Debug.Log(
+                "[BridgeConsoleDisplayRig] Docked left=" +
+                (_left.Active?.DisplayName ?? "?") +
+                " right=" + (_right.Active?.DisplayName ?? "?"));
+            return true;
         }
 
         private bool TryBindConsole()
@@ -217,17 +210,31 @@ namespace NavigationSim.UnityLayer.UI
 
         private void BuildRig()
         {
-            var parent = _console.ConsoleUpper != null ? _console.ConsoleUpper : _console.transform;
-            if (_rigRoot == null)
-            {
-                var go = new GameObject("ConsoleDisplays");
-                _rigRoot = go.transform;
-                _rigRoot.SetParent(parent, false);
-            }
+            TearDownRig();
+
+            // Same trick as the height handle: hang off the console root so wall
+            // stretch is countered explicitly, instead of inheriting Upper scale.
+            var go = new GameObject("ConsoleDisplays");
+            _rigRoot = go.transform;
+            _rigRoot.SetParent(_console.transform, false);
+            _rigRoot.localPosition = Vector3.zero;
+            _rigRoot.localRotation = Quaternion.identity;
+            _rigRoot.localScale = Vector3.one;
 
             _left = CreateSlot("LeftSlot", _leftBank);
             _right = CreateSlot("RightSlot", _rightBank);
-            LayoutSlots();
+        }
+
+        private void TearDownRig()
+        {
+            if (_rigRoot != null)
+            {
+                Destroy(_rigRoot.gameObject);
+                _rigRoot = null;
+            }
+
+            _left = null;
+            _right = null;
         }
 
         private Slot CreateSlot(string name, List<IBridgeDockableInstrument> bank)
@@ -284,8 +291,12 @@ namespace NavigationSim.UnityLayer.UI
 
             var totalWidth = slotWidth * 2f + GapMeters;
             var start = origin - right * (totalWidth * 0.5f) + right * (slotWidth * 0.5f);
+            // World-space Canvas draws on the -Z face (same as PlaceInFront).
+            // Console.forward points into the room / at the user, so the slot's +Z
+            // must point at the wall (-forward) or the UI reads mirrored.
+            // Negative pitch: top of the screen leans toward the wall (reclined).
             var tilt = Quaternion.AngleAxis(-ScreenTiltDeg, right);
-            var facing = tilt * Quaternion.LookRotation(forward, up);
+            var facing = tilt * Quaternion.LookRotation(-forward, up);
 
             PlaceSlot(_left, start, facing, slotWidth, slotHeight);
             PlaceSlot(_right, start + right * (slotWidth + GapMeters), facing, slotWidth, slotHeight);
@@ -306,7 +317,8 @@ namespace NavigationSim.UnityLayer.UI
             slot.WidthM = widthM;
             slot.HeightM = heightM;
             slot.Root.SetPositionAndRotation(center, facing);
-            slot.Content.localPosition = Vector3.zero;
+            // +Z faces the wall; tiny room nudge so the plane sits just above the mesh.
+            slot.Content.localPosition = new Vector3(0f, 0f, -0.01f);
             slot.Content.localRotation = Quaternion.identity;
             slot.Content.localScale = Vector3.one;
 
@@ -320,7 +332,7 @@ namespace NavigationSim.UnityLayer.UI
                 slot.Chrome.localPosition = new Vector3(
                     0f,
                     -(heightM * 0.5f + ButtonStripMeters * 0.55f),
-                    0.005f);
+                    -0.01f);
 
                 // Keep ◀ ▶ near the chrome edges as width changes.
                 RelayoutChromeButtons(slot.Chrome, chromeWidthPx);
@@ -389,10 +401,12 @@ namespace NavigationSim.UnityLayer.UI
             var vertical = Mathf.Max(bounds.size.y, Vector3.Dot(bounds.size, Abs(up)));
             usableHeight = Mathf.Clamp(vertical * 0.85f, MinSlotHeightMeters, MaxSlotHeightMeters);
 
-            // Sit on the upper front of the surface, facing into the room.
+            // Sit on the inclinada face: slight lift only, little room offset so
+            // the reclined plane rests on the mesh instead of floating ahead.
+            var depth = Vector3.Dot(bounds.extents, Abs(forward));
             origin = bounds.center
-                     + forward * (Vector3.Dot(bounds.extents, Abs(forward)) * 0.15f)
-                     + Vector3.up * (bounds.extents.y * 0.35f + LiftAboveSurfaceMeters);
+                     + forward * (depth * 0.12f)
+                     + Vector3.up * (bounds.extents.y * 0.45f + LiftAboveSurfaceMeters);
             return true;
         }
 
@@ -521,6 +535,14 @@ namespace NavigationSim.UnityLayer.UI
             if (root == null || slot.Content == null)
             {
                 return;
+            }
+
+            // If LayoutSlots has not measured yet, never leave the authored 0.001
+            // canvas scale (that reads as a ~2 m floating slab).
+            if (slot.WidthM < 0.05f || slot.HeightM < 0.05f)
+            {
+                slot.WidthM = 0.72f;
+                slot.HeightM = 0.42f;
             }
 
             root.SetParent(slot.Content, false);

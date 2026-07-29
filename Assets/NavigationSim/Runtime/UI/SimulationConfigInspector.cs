@@ -43,6 +43,16 @@ namespace NavigationSim.UnityLayer.UI
         [Tooltip("Tick once to call ResetShip().")]
         [SerializeField] private bool reiniciarBuque;
 
+        [Header("Proa / ventanas (sala)")]
+        [SerializeField] private string paredProa = "";
+        [SerializeField] private bool proaCalibrada;
+        [Tooltip("Tick once to cycle to the previous MRUK wall as Front.")]
+        [SerializeField] private bool paredProaAnterior;
+        [Tooltip("Tick once to cycle to the next MRUK wall as Front.")]
+        [SerializeField] private bool paredProaSiguiente;
+        [Tooltip("Tick once to confirm and save the current Front wall.")]
+        [SerializeField] private bool confirmarProa;
+
         // ── MOTOR ────────────────────────────────────────────────────────────
         [Header("Motor")]
         [SerializeField] private float rpmNominal = 156f;
@@ -164,6 +174,42 @@ namespace NavigationSim.UnityLayer.UI
             {
                 reiniciarBuque = false;
                 _runner.ResetShip();
+            }
+
+            var mapper = FindAnyObjectByType<BridgeRoomMapper>();
+            if (mapper != null)
+            {
+                if (paredProaAnterior)
+                {
+                    paredProaAnterior = false;
+                    mapper.SelectPreviousFrontWall();
+                    BridgeOrientationCalibration.Instance?.OnExternalFrontWallChanged();
+                }
+
+                if (paredProaSiguiente)
+                {
+                    paredProaSiguiente = false;
+                    mapper.SelectNextFrontWall();
+                    BridgeOrientationCalibration.Instance?.OnExternalFrontWallChanged();
+                }
+
+                if (confirmarProa)
+                {
+                    confirmarProa = false;
+                    var cal = BridgeOrientationCalibration.Instance;
+                    if (cal != null)
+                    {
+                        cal.ConfirmCurrentFront();
+                    }
+                    else
+                    {
+                        mapper.ConfirmFrontCalibration();
+                    }
+                }
+
+                paredProa = mapper.GetFrontWallDisplayName();
+                var frame = BridgeReferenceFrame.Instance;
+                proaCalibrada = frame != null && frame.IsCalibrated;
             }
 
             // First frame: mirror the live sim so defaults don't overwrite it.

@@ -273,6 +273,52 @@ namespace ShipBridgePrototype
         /// </summary>
         public void SelectPreviousFrontWall() => CycleFrontWall(-1);
 
+        /// <summary>
+        /// Select a specific MRUK wall face as Front by candidate index, then regenerate.
+        /// Used by the B-panel BUQUE tab cycle control.
+        /// </summary>
+        public void SelectFrontWallAtIndex(int index)
+        {
+            if (_activeRoom == null)
+            {
+                Debug.LogWarning("[BridgeRoomMapper] Cannot select wall: no active room.");
+                return;
+            }
+
+            var walls = GetBridgeWallCandidates(_activeRoom);
+            if (walls.Count == 0)
+            {
+                Debug.LogWarning("[BridgeRoomMapper] Cannot select wall: no wall candidates.");
+                return;
+            }
+
+            var nextIndex = ((index % walls.Count) + walls.Count) % walls.Count;
+            ApplyFrontWall(walls[nextIndex], nextIndex, walls.Count);
+        }
+
+        /// <summary>Labels for the B-panel wall cycle (index-aligned with selection).</summary>
+        public string[] GetFrontWallOptionLabels()
+        {
+            if (_activeRoom == null)
+            {
+                return new[] { "(sin sala)" };
+            }
+
+            var walls = GetBridgeWallCandidates(_activeRoom);
+            if (walls.Count == 0)
+            {
+                return new[] { "(sin paredes)" };
+            }
+
+            var labels = new string[walls.Count];
+            for (var i = 0; i < walls.Count; i++)
+            {
+                labels[i] = $"{i + 1}/{walls.Count}: {walls[i].name} ({GetWallWidth(walls[i]):F1} m)";
+            }
+
+            return labels;
+        }
+
         private void CycleFrontWall(int direction)
         {
             if (_activeRoom == null)
@@ -305,7 +351,16 @@ namespace ShipBridgePrototype
                 nextIndex += walls.Count;
             }
 
-            var next = walls[nextIndex];
+            ApplyFrontWall(walls[nextIndex], nextIndex, walls.Count);
+        }
+
+        private void ApplyFrontWall(MRUKAnchor next, int nextIndex, int wallCount)
+        {
+            if (next == null)
+            {
+                return;
+            }
+
             if (_referenceFrame != null)
             {
                 _referenceFrame.SetCalibrated(false);
@@ -313,7 +368,7 @@ namespace ShipBridgePrototype
 
             GenerateBridgeKeepingFrontChoice(preferRestoredCalibration: false, forcedFront: next);
             Debug.Log(
-                $"[BridgeRoomMapper] Selected wall {nextIndex + 1}/{walls.Count} " +
+                $"[BridgeRoomMapper] Selected wall {nextIndex + 1}/{wallCount} " +
                 $"as Front: {next.name} ({GetWallWidth(next):F2}m).");
         }
 

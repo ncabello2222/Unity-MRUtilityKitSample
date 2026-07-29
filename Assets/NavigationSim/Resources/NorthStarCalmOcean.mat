@@ -7,9 +7,8 @@ Material:
   m_CorrespondingSourceObject: {fileID: 0}
   m_PrefabInstance: {fileID: 0}
   m_PrefabAsset: {fileID: 0}
-  m_Name: Calm Ocean Day
-  m_Shader: {fileID: -6465566751694194690, guid: 43af530d32937974280f01978b8d7fa3,
-    type: 3}
+  m_Name: NorthStarCalmOcean
+  m_Shader: {fileID: -6465566751694194690, guid: 43af530d32937974280f01978b8d7fa3, type: 3}
   m_Parent: {fileID: 0}
   m_ModifiedSerializedProperties: 0
   m_ValidKeywords:
@@ -220,8 +219,8 @@ Material:
     - _Foam_Aeration_Color: {r: 0.13216445, g: 0.48023778, b: 0.509434, a: 0}
     - _Foam_Scroll: {r: 0.125, g: -0.11, b: 0, a: 0}
     - _Noise_Scroll: {r: 0.125, g: -0.33, b: 0, a: 0}
-    - _Normal_Map_Scroll: {r: -0.4, g: 0.69, b: 0, a: 0}
-    - _OceanVisAlbedo: {r: 0.21357, g: 0.317709, b: 0.378, a: 1}
+    - _Normal_Map_Scroll: {r: 0, g: 0, b: 0, a: 0}
+    - _OceanVisAlbedo: {r: 0.21176471, g: 0.2535956, b: 0.3764706, a: 1}
     - _OceanVisFoamColor: {r: 1, g: 1, b: 1, a: 1}
     - _Panning_Speed_Ripples: {r: 0.05, g: 0, b: 0, a: 0}
     - _Panning_Speed_Ripples_Inverse: {r: 0.05, g: 0, b: 0, a: 0}
@@ -232,18 +231,20 @@ Material:
     - _Ripples_Color: {r: 0.42745098, g: 0.7725491, b: 0.7411765, a: 1}
     - _Ripples_Tiling: {r: 7, g: 7, b: 0, a: 0}
     - _Ripples_Tiling_02: {r: 10, g: 10, b: 0, a: 0}
-    - _Scattering_Color: {r: 0.391442, g: 0.794, b: 0.6709962, a: 1}
+    - _Scattering_Color: {r: 0.14196509, g: 0.54059076, b: 0.5924529, a: 1}
     - _SpecColor: {r: 0.19999996, g: 0.19999996, b: 0.19999996, a: 1}
     - _SunColor: {r: 0.6556604, g: 0.9230638, b: 1, a: 1}
     - _SunRipplesPanningSpeed: {r: 1, g: 1, b: 0, a: 0}
     - _SunRipplesTiling: {r: 1, g: 2.5, b: 0, a: 0}
     - _SunTest: {r: 1, g: 0.9109459, b: 0.6745283, a: 0}
+    - _Vector4: {r: 0, g: 0, b: 0, a: 0}
     - _ViewDistanceCloseColor: {r: 0, g: 0, b: 0, a: 0}
     - _ViewDistanceFarColor: {r: 0, g: 0.8638129, b: 1, a: 1}
     - _View_Distance_Far_Color: {r: 0, g: 0.86274517, b: 1, a: 1}
     - _WaterNoiseColor: {r: 0.46925062, g: 0.8962264, b: 0.85791457, a: 1}
     - _Water_Noise_Color: {r: 0.35686272, g: 0.6039216, b: 0.5803921, a: 1}
   m_BuildTextureStacks: []
+  m_AllowLocking: 1
 --- !u!114 &3100275174414998426
 MonoBehaviour:
   m_ObjectHideFlags: 11

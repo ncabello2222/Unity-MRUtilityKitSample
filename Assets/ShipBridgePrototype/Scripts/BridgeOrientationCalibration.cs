@@ -22,6 +22,9 @@ namespace ShipBridgePrototype
         [SerializeField] private float restoreDotThreshold = 0.55f;
         [SerializeField] private float panelDistance = 1.1f;
         [SerializeField] [Range(0f, 1f)] private float panelHeightBetweenHandsAndHead = 0.55f;
+        [Tooltip("Seconds to catch up when the user turns their head. Keeps the panel in FOV " +
+                 "without hard head-locking (Meta comfort: avoid camera-anchored large UI).")]
+        [SerializeField] private float panelFollowSmoothTime = 0.28f;
 
         private MRUKRoom _room;
         private bool _needsUserConfirm;
@@ -30,6 +33,8 @@ namespace ShipBridgePrototype
         private OVRCameraRig _cameraRig;
         private Coroutine _panelPoseRoutine;
         private bool _panelPoseSettled;
+        private Vector3 _panelPositionVelocity;
+        private float _panelYawVelocity;
 
         public bool NeedsUserConfirm => _needsUserConfirm;
         public float RestoreDotThreshold => restoreDotThreshold;
@@ -92,6 +97,17 @@ namespace ShipBridgePrototype
 
         [ContextMenu("Select Previous Wall As Front")]
         public void SelectPreviousWall() => CycleWall(-1);
+
+        /// <summary>
+        /// Called when Front is changed from another UI (e.g. B-panel BUQUE tab).
+        /// Marks confirm as pending and refreshes the startup panel label if it is open,
+        /// without forcing a second world panel to appear.
+        /// </summary>
+        public void OnExternalFrontWallChanged()
+        {
+            _needsUserConfirm = true;
+            RefreshStatusLabel();
+        }
 
         /// <summary>Kept for inspector/context-menu compatibility; cycles any wall.</summary>
         [ContextMenu("Flip Front And Aft")]
@@ -245,16 +261,50 @@ namespace ShipBridgePrototype
 
         private void LateUpdate()
         {
-            if (!_needsUserConfirm || _worldPanel == null || _panelPoseSettled)
+            if (!_needsUserConfirm || _worldPanel == null)
             {
                 return;
             }
 
-            if (TryGetReliableUserFacingPose(out var pos, out var rot))
+            if (!TryGetReliableUserFacingPose(out var targetPos, out var targetRot))
             {
-                _worldPanel.transform.SetPositionAndRotation(pos, rot);
-                _panelPoseSettled = true;
+                return;
             }
+
+            // First reliable frame: snap so the panel appears immediately.
+            // After that, lazy-follow head yaw/position so a turn left/right
+            // does not leave the panel behind a wall (comfort: lag, not head-lock).
+            if (!_panelPoseSettled)
+            {
+                _worldPanel.transform.SetPositionAndRotation(targetPos, targetRot);
+                _panelPoseSettled = true;
+                _panelPositionVelocity = Vector3.zero;
+                _panelYawVelocity = 0f;
+                return;
+            }
+
+            var smooth = Mathf.Max(0.01f, panelFollowSmoothTime);
+            var nextPos = Vector3.SmoothDamp(
+                _worldPanel.transform.position,
+                targetPos,
+                ref _panelPositionVelocity,
+                smooth,
+                Mathf.Infinity,
+                Time.unscaledDeltaTime);
+
+            var currentYaw = _worldPanel.transform.eulerAngles.y;
+            var targetYaw = targetRot.eulerAngles.y;
+            var nextYaw = Mathf.SmoothDampAngle(
+                currentYaw,
+                targetYaw,
+                ref _panelYawVelocity,
+                smooth,
+                Mathf.Infinity,
+                Time.unscaledDeltaTime);
+
+            _worldPanel.transform.SetPositionAndRotation(
+                nextPos,
+                Quaternion.Euler(0f, nextYaw, 0f));
         }
 
         private void EnsureWorldPanel()
@@ -266,6 +316,8 @@ namespace ShipBridgePrototype
 
             DestroyWorldPanel();
             _panelPoseSettled = false;
+            _panelPositionVelocity = Vector3.zero;
+            _panelYawVelocity = 0f;
 
             Vector3 pos;
             Quaternion rot;
@@ -643,6 +695,10 @@ namespace ShipBridgePrototype
                 _worldPanel = null;
                 _statusLabel = null;
             }
+
+            _panelPoseSettled = false;
+            _panelPositionVelocity = Vector3.zero;
+            _panelYawVelocity = 0f;
         }
     }
 }
