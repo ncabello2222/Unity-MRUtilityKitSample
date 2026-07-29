@@ -252,8 +252,10 @@ namespace ShipBridgePrototype
         /// now always applied to Base + Upper together (grab uses a no-op transformer),
         /// so this is a no-op.
         /// </summary>
-        public void SetExternalUpperDrive(bool external)
+        public void SetExternalUpperDrive(bool _)
         {
+            // Intentionally empty: grab uses a no-op transformer and drives
+            // SetTargetBaseHeight, which always moves Base + Upper together.
         }
 
         /// <summary>
