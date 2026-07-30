@@ -47,7 +47,6 @@ namespace ShipBridgePrototype
         private Vector3 _baseStartScale;
         private bool _hierarchyReady;
         private bool _placed;
-        private bool _externalUpperDrive;
 
         public Transform ConsoleBase => consoleBase;
         public Transform ConsoleUpper => consoleUpper;
@@ -73,8 +72,8 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
-        /// Resolves child names from the FBX, groups the upper pieces under
-        /// Console_Upper, and creates a HeightHandle collider proxy on the meson.
+        /// Resolves child names from the FBX, groups the upper desk pieces under
+        /// Console_Upper, and creates a synthetic height-grab proxy on the meson lip.
         /// </summary>
         public void EnsureHierarchy()
         {
@@ -100,7 +99,8 @@ namespace ShipBridgePrototype
 
             if (consoleInclinado == null)
             {
-                consoleInclinado = FindChildTransform("Console_Inclinado");
+                consoleInclinado = FindChildTransform("Console_Inclinado")
+                                  ?? FindChildTransform("Console_Incline");
             }
 
             if (consoleBase == null || consoleMeson == null)
@@ -129,6 +129,7 @@ namespace ShipBridgePrototype
                 }
             }
 
+            // Desk pieces ride with Console_Upper when height changes.
             ReparentUnderUpper(consoleMeson);
             ReparentUnderUpper(consoleTeclado);
             ReparentUnderUpper(consoleInclinado);
@@ -235,16 +236,18 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
-        /// When true, height updates still stretch the Base but leave Upper where the
-        /// grab system put it (avoids fighting the hand pose).
+        /// Kept for callers that previously paused Upper drive during grab. Height is
+        /// now always applied to Base + Upper together (grab uses a no-op transformer),
+        /// so this is a no-op.
         /// </summary>
-        public void SetExternalUpperDrive(bool external)
+        public void SetExternalUpperDrive(bool _)
         {
-            _externalUpperDrive = external;
+            // Intentionally empty: grab uses a no-op transformer and drives
+            // SetTargetBaseHeight, which always moves Base + Upper together.
         }
 
         /// <summary>
-        /// Reads Console_Upper.local Y as the height delta and applies Base stretch only.
+        /// Reads Console_Upper.local Y as the height delta and applies Base + Upper.
         /// </summary>
         public void SyncHeightFromUpperPosition()
         {
@@ -258,8 +261,8 @@ namespace ShipBridgePrototype
         }
 
         /// <summary>
-        /// Keeps the grab proxy on the front lip of the meson (room-facing side),
-        /// parented to the console root so non-uniform width scale does not bury it.
+        /// Keeps the grab proxy on the room-facing meson lip, parented to
+        /// <see cref="consoleUpper"/> so it rises with the desk.
         /// </summary>
         public void RefreshHeightHandlePose()
         {
@@ -272,12 +275,12 @@ namespace ShipBridgePrototype
             var worldBounds = GetWorldRendererBounds(consoleMeson);
             // Front of the desk toward the room (+forward after wall placement).
             var front = worldBounds.ClosestPoint(worldBounds.center + transform.forward * 10f);
-            // Slightly below the desk top — where a fused handle / lip sits.
+            // Slightly below the desk top — grab lip.
             front.y = Mathf.Lerp(worldBounds.min.y, worldBounds.max.y, 0.35f);
 
-            if (heightHandle.parent != transform)
+            if (consoleUpper != null && heightHandle.parent != consoleUpper)
             {
-                heightHandle.SetParent(transform, true);
+                heightHandle.SetParent(consoleUpper, worldPositionStays: true);
             }
 
             heightHandle.position = front;
@@ -309,14 +312,11 @@ namespace ShipBridgePrototype
                 consoleBase.localPosition = p;
             }
 
-            if (!_externalUpperDrive)
-            {
-                var upper = _upperStartLocal;
-                upper.y = _upperStartLocal.y + HeightDelta;
-                consoleUpper.localPosition = upper;
-            }
+            // Always raise the whole upper assembly (desk + docked canvases) with Base.
+            var upper = _upperStartLocal;
+            upper.y = _upperStartLocal.y + HeightDelta;
+            consoleUpper.localPosition = upper;
 
-            // Handle rides with the upper assembly / meson lip.
             if (heightHandle != null && consoleMeson != null)
             {
                 RefreshHeightHandlePose();
@@ -339,6 +339,11 @@ namespace ShipBridgePrototype
             if (heightHandle == null)
             {
                 var existing = transform.Find("HeightHandle");
+                if (existing == null && consoleUpper != null)
+                {
+                    existing = consoleUpper.Find("HeightHandle");
+                }
+
                 if (existing == null)
                 {
                     existing = consoleMeson.Find("HeightHandle");
@@ -355,9 +360,9 @@ namespace ShipBridgePrototype
                 }
             }
 
-            if (heightHandle.parent != transform)
+            if (consoleUpper != null && heightHandle.parent != consoleUpper)
             {
-                heightHandle.SetParent(transform, true);
+                heightHandle.SetParent(consoleUpper, worldPositionStays: true);
             }
 
             if (heightHandle.GetComponent<BoxCollider>() == null)

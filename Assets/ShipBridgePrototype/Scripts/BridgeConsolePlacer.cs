@@ -213,8 +213,8 @@ namespace ShipBridgePrototype
             var wallCenter = wall.GetAnchorCenter();
             console.PlaceAgainstWall(wallCenter, inward, floorY, wallWidth);
 
-            // Wire grab AFTER width scale / placement so the handle collider is
-            // compensated for the non-uniform root scale and sits on the desk lip.
+            // Wire grab AFTER width scale / placement so the lip collider sits
+            // on the meson at the final pose.
             height.EnsureInteractable();
             _placedThisSession = true;
 
