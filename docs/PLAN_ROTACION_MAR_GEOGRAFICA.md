@@ -1,7 +1,11 @@
 # Plan — Hacer que el mar gire con el mundo (muestreo geográfico del campo iFFT)
 
-> Estado: diagnóstico verificado contra el código el 2026-07-28. Rama `performance/quest-pass`.
-> Nada de esto está implementado todavía en el Shader Graph; el lado C# está escrito y desactivado.
+> Estado: implementado el 2026-10-27 en la rama `fix/ocean-foam-turning`.
+> El grafo *Water Realistic* lleva los nodos `OceanGeoUV`, `OceanGeoToRoomDisp` y
+> `OceanGeoToRoomNormal` (propiedad Global `_OceanGeoRotation`) y
+> `geographicFieldSampling` está activo por defecto. Pendiente: las pruebas manuales del §6.
+> Como `OceanGeoUV` actúa antes del interpolador `Uv`, espuma, ruido y normales de detalle
+> también quedan ancladas a la geografía, no solo el campo iFFT.
 
 ## 1. Síntoma
 

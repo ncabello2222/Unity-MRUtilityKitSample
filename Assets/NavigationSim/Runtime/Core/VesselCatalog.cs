@@ -170,6 +170,8 @@ namespace NavigationSim.Core
             cfg.Clarke.T = 4.2;
             cfg.Clarke.Cb = 0.65;
             cfg.Clarke.SurgeTimeConstantFactor = 1.2;
+            // L/B = 2.5 is outside the Clarke regression; this brings the turn to ~2 L at ~6 deg/s.
+            cfg.Clarke.YawDampingQuadratic = 0.1;
             cfg.Engine.RatedRps = 3.2;
             cfg.Engine.McrKw = 4500.0;
             cfg.Engine.TimeConstantS = 4.0;

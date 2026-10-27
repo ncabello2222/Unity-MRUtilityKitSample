@@ -315,6 +315,8 @@ namespace NavigationSim.UnityLayer.UI
             AddValueRow("Coef. bloque Cb (Clarke)", () => cfg.Clarke.Cb, v => cfg.Clarke.Cb = v, 0.01, "F2", 0.40, 0.95);
             AddValueRow("Cte. surge (×L) (Clarke)", () => cfg.Clarke.SurgeTimeConstantFactor,
                 v => cfg.Clarke.SurgeTimeConstantFactor = v, 0.1, "F1", 0.3, 6.0);
+            AddValueRow("Amort. guiñada N'r|r| (Clarke)", () => cfg.Clarke.YawDampingQuadratic,
+                v => cfg.Clarke.YawDampingQuadratic = v, 0.01, "F2", 0.0, 0.3);
 
             AddLiveRow("Buque activo", () => _runner.Config.Name);
             AddLiveRow("Masa / Vel. equilibrio", () =>

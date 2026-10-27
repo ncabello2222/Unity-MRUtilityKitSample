@@ -143,6 +143,9 @@
         },
         {
             "m_Id": "110d7529bb14456f88a24edb6633f6e8"
+        },
+        {
+            "m_Id": "4e07bd86c7ff4a7185228a5a698a5835"
         }
     ],
     "m_Keywords": [
@@ -789,6 +792,24 @@
         },
         {
             "m_Id": "598b7b74fc4d49c0a1c1181fa5bf5c13"
+        },
+        {
+            "m_Id": "6c102095ee5f4428ae35d2cca6ff7875"
+        },
+        {
+            "m_Id": "c5643fd887a84860b1e4683d75e50a60"
+        },
+        {
+            "m_Id": "c235d6df14424df889de5408b19ff79f"
+        },
+        {
+            "m_Id": "14de1e9b6e104079b75532bba42d3e9b"
+        },
+        {
+            "m_Id": "f789a6db039c4788b277a3f0ea404093"
+        },
+        {
+            "m_Id": "d5a8be7829334c288b4706e507c4a53b"
         }
     ],
     "m_GroupDatas": [
@@ -1742,20 +1763,6 @@
             "m_InputSlot": {
                 "m_Node": {
                     "m_Id": "c9301cf2dfb84e37b08174e604f58fd8"
-                },
-                "m_SlotId": 0
-            }
-        },
-        {
-            "m_OutputSlot": {
-                "m_Node": {
-                    "m_Id": "55bc6423d4d44847b0e674f405c2ae29"
-                },
-                "m_SlotId": 1
-            },
-            "m_InputSlot": {
-                "m_Node": {
-                    "m_Id": "87ddcf26ac784c839e89d7228ce59e7f"
                 },
                 "m_SlotId": 0
             }
@@ -3163,20 +3170,6 @@
         {
             "m_OutputSlot": {
                 "m_Node": {
-                    "m_Id": "bc5abf9dc0e64e769d02aadd009c1d94"
-                },
-                "m_SlotId": 1
-            },
-            "m_InputSlot": {
-                "m_Node": {
-                    "m_Id": "302b298af3d4434f8aa0fa236b00a241"
-                },
-                "m_SlotId": 0
-            }
-        },
-        {
-            "m_OutputSlot": {
-                "m_Node": {
                     "m_Id": "bec7d7e5c222455db953bd76656ebfca"
                 },
                 "m_SlotId": 0
@@ -3709,20 +3702,6 @@
         {
             "m_OutputSlot": {
                 "m_Node": {
-                    "m_Id": "eebaa767812045cc957fd14a7d879432"
-                },
-                "m_SlotId": 2
-            },
-            "m_InputSlot": {
-                "m_Node": {
-                    "m_Id": "5cb8bca110684d15b3102d81202f4dd8"
-                },
-                "m_SlotId": 0
-            }
-        },
-        {
-            "m_OutputSlot": {
-                "m_Node": {
                     "m_Id": "ef2857a5292e4656aec4b475a0bc0295"
                 },
                 "m_SlotId": 3
@@ -3856,6 +3835,132 @@
             "m_InputSlot": {
                 "m_Node": {
                     "m_Id": "fd1c5a67f2e74a1ab98cd4de20ac224f"
+                },
+                "m_SlotId": 0
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "bc5abf9dc0e64e769d02aadd009c1d94"
+                },
+                "m_SlotId": 1
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "6c102095ee5f4428ae35d2cca6ff7875"
+                },
+                "m_SlotId": 0
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "c5643fd887a84860b1e4683d75e50a60"
+                },
+                "m_SlotId": 0
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "6c102095ee5f4428ae35d2cca6ff7875"
+                },
+                "m_SlotId": 1
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "6c102095ee5f4428ae35d2cca6ff7875"
+                },
+                "m_SlotId": 2
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "302b298af3d4434f8aa0fa236b00a241"
+                },
+                "m_SlotId": 0
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "eebaa767812045cc957fd14a7d879432"
+                },
+                "m_SlotId": 2
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "c235d6df14424df889de5408b19ff79f"
+                },
+                "m_SlotId": 0
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "14de1e9b6e104079b75532bba42d3e9b"
+                },
+                "m_SlotId": 0
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "c235d6df14424df889de5408b19ff79f"
+                },
+                "m_SlotId": 1
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "c235d6df14424df889de5408b19ff79f"
+                },
+                "m_SlotId": 2
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "5cb8bca110684d15b3102d81202f4dd8"
+                },
+                "m_SlotId": 0
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "55bc6423d4d44847b0e674f405c2ae29"
+                },
+                "m_SlotId": 1
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "f789a6db039c4788b277a3f0ea404093"
+                },
+                "m_SlotId": 0
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "d5a8be7829334c288b4706e507c4a53b"
+                },
+                "m_SlotId": 0
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "f789a6db039c4788b277a3f0ea404093"
+                },
+                "m_SlotId": 1
+            }
+        },
+        {
+            "m_OutputSlot": {
+                "m_Node": {
+                    "m_Id": "f789a6db039c4788b277a3f0ea404093"
+                },
+                "m_SlotId": 2
+            },
+            "m_InputSlot": {
+                "m_Node": {
+                    "m_Id": "87ddcf26ac784c839e89d7228ce59e7f"
                 },
                 "m_SlotId": 0
             }
@@ -5167,6 +5272,9 @@
         },
         {
             "m_Id": "110d7529bb14456f88a24edb6633f6e8"
+        },
+        {
+            "m_Id": "4e07bd86c7ff4a7185228a5a698a5835"
         }
     ]
 }
@@ -25498,5 +25606,567 @@
         "z": 0.0,
         "w": 0.0
     }
+}
+
+{
+    "m_SGVersion": 1,
+    "m_Type": "UnityEditor.ShaderGraph.Internal.Vector4ShaderProperty",
+    "m_ObjectId": "4e07bd86c7ff4a7185228a5a698a5835",
+    "m_Guid": {
+        "m_GuidSerialized": "11437e4f-2ff8-4264-ade4-63d92af8880a"
+    },
+    "m_Name": "OceanGeoRotation",
+    "m_DefaultRefNameVersion": 1,
+    "m_RefNameGeneratedByDisplayName": "OceanGeoRotation",
+    "m_DefaultReferenceName": "_OceanGeoRotation",
+    "m_OverrideReferenceName": "_OceanGeoRotation",
+    "m_GeneratePropertyBlock": false,
+    "m_UseCustomSlotLabel": false,
+    "m_CustomSlotLabel": "",
+    "m_DismissedVersion": 0,
+    "m_Precision": 0,
+    "overrideHLSLDeclaration": true,
+    "hlslDeclarationOverride": 1,
+    "m_Hidden": false,
+    "m_Value": {
+        "x": 1.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    }
+}
+
+{
+    "m_SGVersion": 1,
+    "m_Type": "UnityEditor.ShaderGraph.CustomFunctionNode",
+    "m_ObjectId": "6c102095ee5f4428ae35d2cca6ff7875",
+    "m_Group": {
+        "m_Id": "5f9554596c454305b1c00a19c3dbdcc9"
+    },
+    "m_Name": "OceanGeoUV (Custom Function)",
+    "m_DrawState": {
+        "m_Expanded": true,
+        "m_Position": {
+            "serializedVersion": "2",
+            "x": -80.0,
+            "y": -334.0,
+            "width": 208.0,
+            "height": 302.0
+        }
+    },
+    "m_Slots": [
+        {
+            "m_Id": "8274fa547e0241c7a123e4cc6ff462ad"
+        },
+        {
+            "m_Id": "c22f59e0f3c048a7899e166ced10679b"
+        },
+        {
+            "m_Id": "9fec0cb6b7ee4208991e237d46fcfd01"
+        }
+    ],
+    "synonyms": [
+        "code",
+        "HLSL"
+    ],
+    "m_Precision": 0,
+    "m_PreviewExpanded": false,
+    "m_DismissedVersion": 0,
+    "m_PreviewMode": 0,
+    "m_CustomColors": {
+        "m_SerializableColors": []
+    },
+    "m_SourceType": 1,
+    "m_FunctionName": "OceanGeoUV",
+    "m_FunctionSource": "",
+    "m_FunctionBody": "float4 g = dot(Geo.xy, Geo.xy) > 1e-6 ? Geo : float4(1, 0, 0, 0);\nUV = float2(g.x * XZ.x + g.y * XZ.y + g.z, -g.y * XZ.x + g.x * XZ.y + g.w);"
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector2MaterialSlot",
+    "m_ObjectId": "8274fa547e0241c7a123e4cc6ff462ad",
+    "m_Id": 0,
+    "m_DisplayName": "XZ",
+    "m_SlotType": 0,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "XZ",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "c22f59e0f3c048a7899e166ced10679b",
+    "m_Id": 1,
+    "m_DisplayName": "Geo",
+    "m_SlotType": 0,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Geo",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector2MaterialSlot",
+    "m_ObjectId": "9fec0cb6b7ee4208991e237d46fcfd01",
+    "m_Id": 2,
+    "m_DisplayName": "UV",
+    "m_SlotType": 1,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "UV",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.PropertyNode",
+    "m_ObjectId": "c5643fd887a84860b1e4683d75e50a60",
+    "m_Group": {
+        "m_Id": "5f9554596c454305b1c00a19c3dbdcc9"
+    },
+    "m_Name": "Property",
+    "m_DrawState": {
+        "m_Expanded": true,
+        "m_Position": {
+            "serializedVersion": "2",
+            "x": -280.0,
+            "y": -174.0,
+            "width": 170.0,
+            "height": 34.0
+        }
+    },
+    "m_Slots": [
+        {
+            "m_Id": "c0f4a440c79d4d6591e0b406c667d25e"
+        }
+    ],
+    "synonyms": [],
+    "m_Precision": 0,
+    "m_PreviewExpanded": true,
+    "m_DismissedVersion": 0,
+    "m_PreviewMode": 0,
+    "m_CustomColors": {
+        "m_SerializableColors": []
+    },
+    "m_Property": {
+        "m_Id": "4e07bd86c7ff4a7185228a5a698a5835"
+    }
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "c0f4a440c79d4d6591e0b406c667d25e",
+    "m_Id": 0,
+    "m_DisplayName": "OceanGeoRotation",
+    "m_SlotType": 1,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Out",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 1,
+    "m_Type": "UnityEditor.ShaderGraph.CustomFunctionNode",
+    "m_ObjectId": "c235d6df14424df889de5408b19ff79f",
+    "m_Group": {
+        "m_Id": "5f9554596c454305b1c00a19c3dbdcc9"
+    },
+    "m_Name": "OceanGeoToRoomDisp (Custom Function)",
+    "m_DrawState": {
+        "m_Expanded": true,
+        "m_Position": {
+            "serializedVersion": "2",
+            "x": 1074.0000610351562,
+            "y": -618.0000610351562,
+            "width": 208.0,
+            "height": 302.0
+        }
+    },
+    "m_Slots": [
+        {
+            "m_Id": "8e73bb6b76934c05b2a147bfbddec29a"
+        },
+        {
+            "m_Id": "da43b1dc1f724758a173e3a0a6c1aa8f"
+        },
+        {
+            "m_Id": "88620873c26e44eb8e6108ffff7462e2"
+        }
+    ],
+    "synonyms": [
+        "code",
+        "HLSL"
+    ],
+    "m_Precision": 0,
+    "m_PreviewExpanded": false,
+    "m_DismissedVersion": 0,
+    "m_PreviewMode": 0,
+    "m_CustomColors": {
+        "m_SerializableColors": []
+    },
+    "m_SourceType": 1,
+    "m_FunctionName": "OceanGeoToRoomDisp",
+    "m_FunctionSource": "",
+    "m_FunctionBody": "float4 g = dot(Geo.xy, Geo.xy) > 1e-6 ? Geo : float4(1, 0, 0, 0);\nOut = float4(g.x * Vec.x - g.y * Vec.z, Vec.y, g.y * Vec.x + g.x * Vec.z, Vec.w);"
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "8e73bb6b76934c05b2a147bfbddec29a",
+    "m_Id": 0,
+    "m_DisplayName": "Vec",
+    "m_SlotType": 0,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Vec",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "da43b1dc1f724758a173e3a0a6c1aa8f",
+    "m_Id": 1,
+    "m_DisplayName": "Geo",
+    "m_SlotType": 0,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Geo",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "88620873c26e44eb8e6108ffff7462e2",
+    "m_Id": 2,
+    "m_DisplayName": "Out",
+    "m_SlotType": 1,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Out",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.PropertyNode",
+    "m_ObjectId": "14de1e9b6e104079b75532bba42d3e9b",
+    "m_Group": {
+        "m_Id": "5f9554596c454305b1c00a19c3dbdcc9"
+    },
+    "m_Name": "Property",
+    "m_DrawState": {
+        "m_Expanded": true,
+        "m_Position": {
+            "serializedVersion": "2",
+            "x": 874.0000610351562,
+            "y": -458.00006103515625,
+            "width": 170.0,
+            "height": 34.0
+        }
+    },
+    "m_Slots": [
+        {
+            "m_Id": "ec7142bf9d5743d6b6cf210a65acea09"
+        }
+    ],
+    "synonyms": [],
+    "m_Precision": 0,
+    "m_PreviewExpanded": true,
+    "m_DismissedVersion": 0,
+    "m_PreviewMode": 0,
+    "m_CustomColors": {
+        "m_SerializableColors": []
+    },
+    "m_Property": {
+        "m_Id": "4e07bd86c7ff4a7185228a5a698a5835"
+    }
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "ec7142bf9d5743d6b6cf210a65acea09",
+    "m_Id": 0,
+    "m_DisplayName": "OceanGeoRotation",
+    "m_SlotType": 1,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Out",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 1,
+    "m_Type": "UnityEditor.ShaderGraph.CustomFunctionNode",
+    "m_ObjectId": "f789a6db039c4788b277a3f0ea404093",
+    "m_Group": {
+        "m_Id": "c7ba914337954699907b8edef6ae0fa8"
+    },
+    "m_Name": "OceanGeoToRoomNormal (Custom Function)",
+    "m_DrawState": {
+        "m_Expanded": true,
+        "m_Position": {
+            "serializedVersion": "2",
+            "x": 1388.0001220703125,
+            "y": 1707.0001220703125,
+            "width": 208.0,
+            "height": 302.0
+        }
+    },
+    "m_Slots": [
+        {
+            "m_Id": "e9ca95fccfa54c689c6b0af3d94415ef"
+        },
+        {
+            "m_Id": "c5839fbe06204750902ad1a73b98cc49"
+        },
+        {
+            "m_Id": "34d0efb929364036904f567d1e7a7f41"
+        }
+    ],
+    "synonyms": [
+        "code",
+        "HLSL"
+    ],
+    "m_Precision": 0,
+    "m_PreviewExpanded": false,
+    "m_DismissedVersion": 0,
+    "m_PreviewMode": 0,
+    "m_CustomColors": {
+        "m_SerializableColors": []
+    },
+    "m_SourceType": 1,
+    "m_FunctionName": "OceanGeoToRoomNormal",
+    "m_FunctionSource": "",
+    "m_FunctionBody": "float4 g = dot(Geo.xy, Geo.xy) > 1e-6 ? Geo : float4(1, 0, 0, 0);\nOut = float3(g.x * N.x - g.y * N.z, N.y, g.y * N.x + g.x * N.z);"
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector3MaterialSlot",
+    "m_ObjectId": "e9ca95fccfa54c689c6b0af3d94415ef",
+    "m_Id": 0,
+    "m_DisplayName": "N",
+    "m_SlotType": 0,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "N",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "c5839fbe06204750902ad1a73b98cc49",
+    "m_Id": 1,
+    "m_DisplayName": "Geo",
+    "m_SlotType": 0,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Geo",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector3MaterialSlot",
+    "m_ObjectId": "34d0efb929364036904f567d1e7a7f41",
+    "m_Id": 2,
+    "m_DisplayName": "Out",
+    "m_SlotType": 1,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Out",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+    },
+    "m_Labels": []
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.PropertyNode",
+    "m_ObjectId": "d5a8be7829334c288b4706e507c4a53b",
+    "m_Group": {
+        "m_Id": "c7ba914337954699907b8edef6ae0fa8"
+    },
+    "m_Name": "Property",
+    "m_DrawState": {
+        "m_Expanded": true,
+        "m_Position": {
+            "serializedVersion": "2",
+            "x": 1188.0001220703125,
+            "y": 1867.0001220703125,
+            "width": 170.0,
+            "height": 34.0
+        }
+    },
+    "m_Slots": [
+        {
+            "m_Id": "926f35405d494cae86588811ac67ae2f"
+        }
+    ],
+    "synonyms": [],
+    "m_Precision": 0,
+    "m_PreviewExpanded": true,
+    "m_DismissedVersion": 0,
+    "m_PreviewMode": 0,
+    "m_CustomColors": {
+        "m_SerializableColors": []
+    },
+    "m_Property": {
+        "m_Id": "4e07bd86c7ff4a7185228a5a698a5835"
+    }
+}
+
+{
+    "m_SGVersion": 0,
+    "m_Type": "UnityEditor.ShaderGraph.Vector4MaterialSlot",
+    "m_ObjectId": "926f35405d494cae86588811ac67ae2f",
+    "m_Id": 0,
+    "m_DisplayName": "OceanGeoRotation",
+    "m_SlotType": 1,
+    "m_Hidden": false,
+    "m_ShaderOutputName": "Out",
+    "m_StageCapability": 3,
+    "m_Value": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_DefaultValue": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 0.0
+    },
+    "m_Labels": []
 }
 

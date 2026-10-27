@@ -14,6 +14,14 @@ namespace NavigationSim.Core
         public double RudderAspectRatio = 0.7;       // Lambda = b²/AR
         public double ThrustDeduction = 0.1;
 
+        /// <summary>
+        /// Quadratic yaw damping N'_r|r| (non-dimensional, positive = damping). The linear
+        /// Clarke regression has no damping that grows with rate of turn, so hard over it
+        /// overpredicts yaw rate, badly so on beamy hulls outside its L/B range. 0.02 keeps
+        /// the catalogue's slender hulls at a tactical diameter of 3-4 L (IMO limit: 5 L).
+        /// </summary>
+        public double YawDampingQuadratic = 0.02;
+
         public double R66 => (L > 100.0 ? 0.27 : 0.25) * L;
         public double Mass(double rho) => rho * Cb * L * B * T;
     }
@@ -67,10 +75,13 @@ namespace NavigationSim.Core
             double deltaR = -rudderRad; // physical rudder angle convention of PVS
 
             double thrust = PropellerModel.Thrust(Propeller, ur, nps, rho);
+            // Xdd is negative: this term is rudder drag and must slow the ship in a turn.
             double tau1 = (1.0 - p.ThrustDeduction) * thrust
-                          - Xdd * Math.Sin(deltaR) * Math.Sin(deltaR) + ext.X;
+                          + Xdd * Math.Sin(deltaR) * Math.Sin(deltaR) + ext.X;
             double tau2 = -Yd * Math.Sin(2.0 * deltaR) + ext.Y;
-            double tau6 = -Nd * Math.Sin(2.0 * deltaR) + ext.N;
+            double tau6 = -Nd * Math.Sin(2.0 * deltaR) + ext.N
+                          - p.YawDampingQuadratic * 0.5 * rho * p.L * p.L * p.L * p.L * p.T
+                          * Math.Abs(r) * r;
 
             // clarke83() system matrices (PVS lib/models.py).
             BuildMatrices(Ur, rho, out double m11,

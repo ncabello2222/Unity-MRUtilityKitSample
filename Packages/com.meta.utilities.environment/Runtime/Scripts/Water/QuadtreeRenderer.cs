@@ -156,6 +156,8 @@ namespace Meta.Utilities.Environment
 
         private void Initialize()
         {
+            ReleaseGeometry();
+
             var size = m_vertexCount + 1;
             var vertices = new Vector3[size * size];
             var xDelta = 1f / m_vertexCount;
@@ -227,9 +229,32 @@ namespace Meta.Utilities.Environment
 
         private void OnDisable()
         {
-            m_frustumPlanesNative.Dispose();
-            m_subdivisionMap.Dispose();
-            m_visiblePatches.Dispose();
+            if (m_frustumPlanesNative.IsCreated)
+                m_frustumPlanesNative.Dispose();
+            if (m_visiblePatches.IsCreated)
+                m_visiblePatches.Dispose();
+            ReleaseGeometry();
+        }
+
+        private void ReleaseGeometry()
+        {
+            if (m_subdivisionMap.IsCreated)
+                m_subdivisionMap.Dispose();
+
+            DestroyMesh(ref m_mesh);
+            DestroyMesh(ref m_skirtingMesh);
+        }
+
+        private static void DestroyMesh(ref Mesh mesh)
+        {
+            if (mesh == null)
+                return;
+
+            if (Application.isPlaying)
+                Destroy(mesh);
+            else
+                DestroyImmediate(mesh);
+            mesh = null;
         }
 
         private void RenderQuadtree(int lod, int x0, int y0)

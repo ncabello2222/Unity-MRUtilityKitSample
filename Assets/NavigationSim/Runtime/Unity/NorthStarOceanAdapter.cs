@@ -24,6 +24,15 @@ namespace NavigationSim.UnityLayer
         /// <summary>Heading step that is allowed to invalidate the spectrum [deg].</summary>
         private const float HeadingQuantiseDeg = 1f;
 
+        /// <summary>
+        /// Approximate period the geographic offset is folded into [m]. The iFFT field
+        /// repeats every patch, but foam, noise and detail normals tile on their own
+        /// scales and jump wherever the offset wraps. A whole number of patches near this
+        /// length keeps the waves exact and leaves that jump to once every several
+        /// kilometres, while float32 still resolves well under a millimetre here.
+        /// </summary>
+        private const float GeoWrapTargetM = 8192f;
+
         private static readonly int OceanRcpScaleId = Shader.PropertyToID("_OceanRcpScale");
         private static readonly int OceanChoppynessId = Shader.PropertyToID("_OceanChoppyness");
         private static readonly int OceanDisplacementId = Shader.PropertyToID("_OceanDisplacement");
@@ -72,11 +81,11 @@ namespace NavigationSim.UnityLayer
         [Tooltip("When true, translates the FFT field with the exterior-world transform so crests stay glued to the terrain while the bridge stays fixed.")]
         [SerializeField] private bool scrollWavesWithVirtualPosition = true;
         [Tooltip(
-            "Sample the wave field in geographic axes instead of room axes, so the sea turns " +
-            "with the world instead of standing still with the ship. REQUIRES the matching 2D " +
-            "rotation node in the water Shader Graph (property _OceanGeoRotation, default " +
-            "(1,0,0,0)). Leave off until that node is in place, or the sea will freeze.")]
-        [SerializeField] private bool geographicFieldSampling;
+            "Sample the wave field in geographic axes instead of room axes, so the sea, its " +
+            "foam and its detail normals turn and travel with the world instead of standing " +
+            "still with the ship. Relies on the OceanGeo* nodes in Water Realistic.shadergraph " +
+            "(property _OceanGeoRotation). Off falls back to the translate-only spectral shift.")]
+        [SerializeField] private bool geographicFieldSampling = true;
         [Tooltip("Drive WaveResponseModel from iFFT height samples (Phase 3).")]
         [SerializeField] private bool bindSeakeepingToSurface = true;
         [Tooltip("Logs once a second what the wave field is actually doing: how fast it is being told to scroll, how fast it really scrolled, and how many iFFT rebuilds delivered it. Use when the sea looks glued to the ship.")]
@@ -89,6 +98,7 @@ namespace NavigationSim.UnityLayer
         private EnvironmentProfile _profile;
         private MaterialPropertyBlock _propertyBlock;
         private Material _oceanMaterialSource;
+        private bool _ownsOceanMaterial;
         private bool _loggedDetailNormals;
         private Vector3 _pivotPosition;
         private Quaternion _shipForwardBasis = Quaternion.identity;
@@ -202,6 +212,21 @@ namespace NavigationSim.UnityLayer
                 Destroy(_profile);
                 _profile = null;
             }
+
+            // OceanRoot is not parented to this component, so it (and the NativeArrays
+            // and textures OceanSimulation holds) would outlive it otherwise.
+            if (_oceanRoot != null)
+            {
+                Destroy(_oceanRoot.gameObject);
+                _oceanRoot = null;
+            }
+
+            if (_ownsOceanMaterial && oceanMaterial != null)
+            {
+                Destroy(oceanMaterial);
+                oceanMaterial = null;
+                _ownsOceanMaterial = false;
+            }
         }
 
         // No Update(): it used to copy the raw sim pose into _east/_north/_headingDeg with
@@ -227,8 +252,10 @@ namespace NavigationSim.UnityLayer
             var runner = NavigationSimRunner.Instance;
             if (runner != null)
             {
-                SetVirtualShipPosition(runner.InterpEast, runner.InterpNorth, runner.InterpPsiDeg);
+                // Sea state first: it can change the patch size the geographic frame folds
+                // its offset against, and the render reads the new patch this same frame.
                 SyncSeaState(runner.Env);
+                SetVirtualShipPosition(runner.InterpEast, runner.InterpNorth, runner.InterpPsiDeg);
                 BindSeakeeping();
             }
 
@@ -309,11 +336,12 @@ namespace NavigationSim.UnityLayer
             float ox = (float)(_east - driftEast) - (c * origin.x + s * origin.z);
             float oz = (float)(_north - driftNorth) - (c * origin.z - s * origin.x);
 
-            // The field is periodic in the patch, so folding the translation into one
-            // period keeps the shader's float32 UV exact however far the exercise sails.
-            // Without it a 50 km leg spends its whole mantissa on the integer part.
-            ox = Mathf.Repeat(ox, _patchSize);
-            oz = Mathf.Repeat(oz, _patchSize);
+            // Folding keeps the shader's float32 UV exact however far the exercise sails;
+            // without it a 50 km leg spends its whole mantissa on the integer part. The
+            // period is a whole number of patches so the wave field itself never jumps.
+            float wrap = _patchSize * Mathf.Max(1f, Mathf.Round(GeoWrapTargetM / _patchSize));
+            ox = Mathf.Repeat(ox, wrap);
+            oz = Mathf.Repeat(oz, wrap);
 
             // All the motion now rides in the map above; a second translation on top of
             // it would double-count every metre the ship makes good.
@@ -555,6 +583,7 @@ namespace NavigationSim.UnityLayer
             {
                 // Instance so runtime property tweaks do not dirty the shared asset.
                 oceanMaterial = new Material(_oceanMaterialSource) { name = "NorthStarOceanRuntime" };
+                _ownsOceanMaterial = true;
                 SyncDetailNormalsFromSource();
             }
         }
@@ -664,7 +693,10 @@ namespace NavigationSim.UnityLayer
             // The offset as it is handed to the spectral shift — the only one the water
             // actually receives. Diverging from the per-frame value means the throttle,
             // not the maths, is what the eye is seeing.
-            _diagCommittedOffset = _oceanSimulation.FieldOffset;
+            // In geographic mode the motion rides the per-frame shader map instead.
+            _diagCommittedOffset = geographicFieldSampling
+                ? _diagLastFrameOffset
+                : _oceanSimulation.FieldOffset;
             _oceanSimulation.UpdateSimulation(BuildWindVector());
         }
 
@@ -725,6 +757,8 @@ namespace NavigationSim.UnityLayer
                 $"texel={texel:F1} m   patch={_patchSize:F0} m\n" +
                 $"  offset now = ({_diagLastFrameOffset.x:F1}, {_diagLastFrameOffset.y:F1}) m   " +
                 $"scrollWaves={scrollWavesWithVirtualPosition}   motionBound={(_motion != null && _motion.HasInitialPose)}\n" +
+                $"  geographic={geographicFieldSampling}   frame yaw={Mathf.Atan2(_geoFrame.y, _geoFrame.x) * Mathf.Rad2Deg:F1} deg   " +
+                $"heading={_headingDeg:F1} deg\n" +
                 $"  amplitude={_oceanSimulation.Amplitude:F3}   unitHs={_oceanSimulation.UnitWaveHeightM:F3} m   " +
                 $"targetHs={_targetHsM:F2} m");
 
