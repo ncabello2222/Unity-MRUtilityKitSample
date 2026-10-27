@@ -117,7 +117,7 @@ namespace ShipBridgePrototype
                 box = handleGo.AddComponent<BoxCollider>();
             }
 
-            // World-ish grab volume, compensated for non-uniform root width scale.
+            // World-ish grab volume on the meson lip, compensated for root width scale.
             var lossy = handleGo.transform.lossyScale;
             box.center = Vector3.zero;
             box.size = new Vector3(
@@ -134,7 +134,7 @@ namespace ShipBridgePrototype
 
             body.isKinematic = true;
             body.useGravity = false;
-            body.collisionDetectionMode = CollisionDetectionMode.ContinuousSpeculative;
+            body.collisionDetectionMode = CollisionDetectionMode.Discrete;
 
             grabbable = handleGo.GetComponent<Grabbable>();
             if (grabbable == null)
