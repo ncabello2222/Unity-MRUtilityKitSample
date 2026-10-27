@@ -55,6 +55,7 @@ namespace NavigationSim.UnityLayer.UI
         private NavigationSimRunner _runner;
         private GameObject _root;
         private Canvas _canvas;
+        private BridgePanelVisibility _visibility;
         private RawImage _ppi;
         private Texture2D _tex;
 
@@ -102,10 +103,22 @@ namespace NavigationSim.UnityLayer.UI
             _runner = GetComponent<NavigationSimRunner>();
         }
 
+        private void OnDestroy()
+        {
+            if (_ppi != null) _ppi.texture = null;
+            if (_tex != null) Destroy(_tex);
+            _tex = null;
+            _frame = null;
+            _screenMask = null;
+            // A docked canvas is reparented outside the owning component's transform.
+            if (_root != null) Destroy(_root);
+        }
+
         private void Start()
         {
             Build();
-            _canvas.enabled = false;
+            _visibility = new BridgePanelVisibility(_root);
+            _visibility.SetVisible(false);
             if (_openWhenReady)
             {
                 _openWhenReady = false;
@@ -171,17 +184,15 @@ namespace NavigationSim.UnityLayer.UI
                 BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.75f, -0.45f, 0.02f);
             }
 
-            _canvas.enabled = true;
+            _visibility.SetVisible(true);
             IsOpen = true;
+            _timer = RefreshSeconds;
             Refresh();
         }
 
         public void Close()
         {
-            if (_canvas != null)
-            {
-                _canvas.enabled = false;
-            }
+            _visibility?.SetVisible(false);
 
             _openWhenReady = false;
             IsOpen = false;
@@ -299,14 +310,16 @@ namespace NavigationSim.UnityLayer.UI
             _ppi.texture = _tex;
             _ppi.raycastTarget = false;
 
-            // Sweep, heading flash and EBL are quads over the plot. They move every frame,
-            // which is exactly what a rasterised line cannot afford to do.
+            // Isolate the every-frame rotations from the static background/buttons.
+            // Keep this Canvas over the plot and at the same size, so radial coordinates
+            // and ordering are unchanged.
+            var radials = BridgeInstrumentCanvas.SubCanvas(plotRt, "Radials", new Vector2(PpiUi, PpiUi));
             float radialLen = PpiUi * 0.48f;
-            _sweep = BridgeInstrumentCanvas.Radial(plotRt, "Sweep", radialLen, 3f,
+            _sweep = BridgeInstrumentCanvas.Radial(radials, "Sweep", radialLen, 3f,
                 new Color(0.3f, 0.9f, 0.4f, 0.35f));
-            _headingFlash = BridgeInstrumentCanvas.Radial(plotRt, "HeadingFlash", radialLen, 2f,
+            _headingFlash = BridgeInstrumentCanvas.Radial(radials, "HeadingFlash", radialLen, 2f,
                 new Color(0.9f, 0.9f, 0.5f, 0.8f));
-            _ebl = BridgeInstrumentCanvas.Radial(plotRt, "Ebl", radialLen, 2f,
+            _ebl = BridgeInstrumentCanvas.Radial(radials, "Ebl", radialLen, 2f,
                 BridgeInstrumentCanvas.AccentAmber);
 
             _dataLabel = BridgeInstrumentCanvas.Text(readouts, "Data", new Vector2(700f, -240f),

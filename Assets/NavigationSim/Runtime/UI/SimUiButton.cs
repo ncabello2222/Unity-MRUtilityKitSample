@@ -48,7 +48,7 @@ namespace NavigationSim.UnityLayer.UI
 
         public void Press()
         {
-            if (_pressed)
+            if (_pressed || !isActiveAndEnabled)
             {
                 return;
             }
@@ -56,8 +56,8 @@ namespace NavigationSim.UnityLayer.UI
             _pressed = true;
             _repeatTimer = RepeatDelay;
             RefreshColor();
-            OnClick?.Invoke();
             OnHoldChanged?.Invoke(true);
+            OnClick?.Invoke();
         }
 
         public void Release()
@@ -89,7 +89,8 @@ namespace NavigationSim.UnityLayer.UI
 
         private void OnDisable()
         {
-            _pressed = false;
+            // Closing a panel while holding NFU must send the neutral order.
+            Release();
             _hovered = false;
             if (_background != null)
             {

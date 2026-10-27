@@ -86,6 +86,11 @@ namespace Meta.Utilities.Environment
                 if (camera.cameraType is not CameraType.Game and not CameraType.SceneView and not CameraType.Reflection)
                     continue;
 
+                // Spectator/map cameras may exclude the ocean layer. Avoid building
+                // their quadtree and submitting draws the camera cannot display.
+                if ((camera.cullingMask & (1 << gameObject.layer)) == 0)
+                    continue;
+
                 if (m_updateQuadtree)
                 {
                     // Snap the origin of the quadtree to the vertex size of the largest subdivision to prevent sliding vertices
@@ -220,7 +225,7 @@ namespace Meta.Utilities.Environment
 
             for (var i = 0; i < 16; i++)
             {
-                m_matrixMeshPairs[i] = new Matrix4x4[MAXINSTANCESPERDRAW];
+                m_matrixMeshPairs[i] ??= new Matrix4x4[MAXINSTANCESPERDRAW];
             }
 
             m_frustumPlanesNative = new NativeArray<float4>(6, Allocator.Persistent);

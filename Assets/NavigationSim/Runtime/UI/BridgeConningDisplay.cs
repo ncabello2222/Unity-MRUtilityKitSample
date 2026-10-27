@@ -54,6 +54,7 @@ namespace NavigationSim.UnityLayer.UI
         private NavigationSimRunner _runner;
         private GameObject _canvasRoot;
         private Canvas _canvas;
+        private BridgePanelVisibility _visibility;
         private OpenBridgeConningBinder _openBridgeBinder;
         private float _refreshTimer;
         private bool _openWhenReady;
@@ -178,7 +179,7 @@ namespace NavigationSim.UnityLayer.UI
 
         public void Open()
         {
-            if (_canvas == null)
+            if (!_built)
             {
                 // Still being built; it opens as soon as the prewarm finishes.
                 _openWhenReady = true;
@@ -190,7 +191,7 @@ namespace NavigationSim.UnityLayer.UI
                 PlaceInFrontOfCamera();
             }
 
-            _canvas.enabled = true;
+            _visibility.SetVisible(true);
             IsOpen = true;
             _refreshTimer = RefreshInterval;
 
@@ -202,12 +203,8 @@ namespace NavigationSim.UnityLayer.UI
 
         public void Close()
         {
-            // Only the Canvas goes off. Deactivating the root would re-run OnEnable
-            // across the whole panel and rebuild its layout on the way back in.
-            if (_canvas != null)
-            {
-                _canvas.enabled = false;
-            }
+            // Keep layout/TMP objects warm, but hide all canvases and physics buttons.
+            _visibility?.SetVisible(false);
 
             _openWhenReady = false;
             IsOpen = false;
@@ -279,7 +276,8 @@ namespace NavigationSim.UnityLayer.UI
             yield return null;
 
             WarmCanvas();
-            _canvas.enabled = false;
+            _visibility = new BridgePanelVisibility(_canvasRoot);
+            _visibility.SetVisible(false);
             _built = _canvasRoot != null;
 
             if (_openWhenReady)

@@ -27,6 +27,7 @@ namespace NavigationSim.UnityLayer.UI
         private NavigationSimRunner _runner;
         private GameObject _root;
         private Canvas _canvas;
+        private BridgePanelVisibility _visibility;
         private TMP_Text _list;
         private readonly StringBuilder _sb = new StringBuilder(1024);
         private float _timer;
@@ -52,7 +53,8 @@ namespace NavigationSim.UnityLayer.UI
         private void Start()
         {
             Build();
-            _canvas.enabled = false;
+            _visibility = new BridgePanelVisibility(_root);
+            _visibility.SetVisible(false);
             if (_openWhenReady)
             {
                 _openWhenReady = false;
@@ -118,17 +120,14 @@ namespace NavigationSim.UnityLayer.UI
                 BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.55f, 0.55f, -0.05f);
             }
 
-            _canvas.enabled = true;
+            _visibility.SetVisible(true);
             IsOpen = true;
             Refresh();
         }
 
         public void Close()
         {
-            if (_canvas != null)
-            {
-                _canvas.enabled = false;
-            }
+            _visibility?.SetVisible(false);
 
             _openWhenReady = false;
             IsOpen = false;

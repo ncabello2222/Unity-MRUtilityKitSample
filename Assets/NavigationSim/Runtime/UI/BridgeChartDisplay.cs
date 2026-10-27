@@ -47,6 +47,7 @@ namespace NavigationSim.UnityLayer.UI
         private NavigationSimRunner _runner;
         private GameObject _root;
         private Canvas _canvas;
+        private BridgePanelVisibility _visibility;
         private RawImage _plot;
         private Texture2D _tex;
 
@@ -85,10 +86,22 @@ namespace NavigationSim.UnityLayer.UI
             _runner = GetComponent<NavigationSimRunner>();
         }
 
+        private void OnDestroy()
+        {
+            if (_plot != null) _plot.texture = null;
+            if (_tex != null) Destroy(_tex);
+            _tex = null;
+            _frame = null;
+            _backdrop = null;
+            // A docked canvas is reparented outside the owning component's transform.
+            if (_root != null) Destroy(_root);
+        }
+
         private void Start()
         {
             Build();
-            _canvas.enabled = false;
+            _visibility = new BridgePanelVisibility(_root);
+            _visibility.SetVisible(false);
             if (_openWhenReady)
             {
                 _openWhenReady = false;
@@ -150,17 +163,15 @@ namespace NavigationSim.UnityLayer.UI
                 BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.7f, 0.35f, 0.05f);
             }
 
-            _canvas.enabled = true;
+            _visibility.SetVisible(true);
             IsOpen = true;
+            _timer = RefreshSeconds;
             Refresh();
         }
 
         public void Close()
         {
-            if (_canvas != null)
-            {
-                _canvas.enabled = false;
-            }
+            _visibility?.SetVisible(false);
 
             _openWhenReady = false;
             IsOpen = false;

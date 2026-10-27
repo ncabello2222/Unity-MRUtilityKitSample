@@ -136,6 +136,10 @@ namespace Meta.Utilities.Environment
         // Rebuilds all the tables
         public void Initialize()
         {
+            // Public and also used after resolution changes: never replace live buffers
+            // (or dispose them while a job still owns their texture data).
+            Cleanup();
+
             m_dispersionTable = new NativeArray<float>(m_resolution * m_resolution, Allocator.Persistent);
             m_spectrum = new NativeArray<float4>(m_resolution * m_resolution, Allocator.Persistent);
 
@@ -169,25 +173,46 @@ namespace Meta.Utilities.Environment
 
         public void Cleanup()
         {
-            m_dispersionTable.Dispose();
-            m_spectrum.Dispose();
-            m_butterflyLookupTable.Dispose();
+            m_jobHandle.Complete();
+            m_jobHandle = default;
+            m_hasPendingJobs = false;
 
-            m_heightBufferA.Dispose();
-            m_heightBufferB.Dispose();
-            m_displacementBufferA.Dispose();
-            m_displacementBufferB.Dispose();
-            m_displacementResult.Dispose();
+            if (m_dispersionTable.IsCreated) m_dispersionTable.Dispose();
+            if (m_spectrum.IsCreated) m_spectrum.Dispose();
+            if (m_butterflyLookupTable.IsCreated) m_butterflyLookupTable.Dispose();
+            if (m_heightBufferA.IsCreated) m_heightBufferA.Dispose();
+            if (m_heightBufferB.IsCreated) m_heightBufferB.Dispose();
+            if (m_displacementBufferA.IsCreated) m_displacementBufferA.Dispose();
+            if (m_displacementBufferB.IsCreated) m_displacementBufferB.Dispose();
+            if (m_displacementResult.IsCreated) m_displacementResult.Dispose();
 
-            for (var i = 0; i < m_normalResult.Length; i++)
-                m_normalResult[i].Dispose();
+            if (m_normalResult != null)
+            {
+                for (var i = 0; i < m_normalResult.Length; i++)
+                    if (m_normalResult[i].IsCreated) m_normalResult[i].Dispose();
+                m_normalResult = null;
+            }
 
-            m_normalResult = null;
+            if (m_lengthToRoughness.IsCreated) m_lengthToRoughness.Dispose();
 
-            m_lengthToRoughness.Dispose();
+            DestroyTexture(DisplacementMap);
+            DestroyTexture(NormalMap);
+            DisplacementMap = null;
+            NormalMap = null;
+            m_cachedResolution = 0;
+            m_cachedSettingsVersion = -1;
+            m_cachedProfile = null;
+            m_cachedAmplitude = float.NaN;
+            UnitWaveHeightM = 0f;
+        }
 
-            DestroyImmediate(DisplacementMap);
-            DestroyImmediate(NormalMap);
+        private static void DestroyTexture(Texture2D texture)
+        {
+            if (texture == null) return;
+            if (Application.isPlaying)
+                Destroy(texture);
+            else
+                DestroyImmediate(texture);
         }
 
         private void OnEnable()
@@ -195,19 +220,18 @@ namespace Meta.Utilities.Environment
             Initialize();
 
             Instance = this;
-            m_cachedSettingsVersion = -1;
-            m_cachedResolution = 0;
-            m_cachedProfile = null;
         }
 
         private void OnDisable()
         {
-            m_jobHandle.Complete();
             Cleanup();
+            if (Instance == this) Instance = null;
         }
 
         public void UpdateSimulation(Vector3 windVector)
         {
+            if (!isActiveAndEnabled) return;
+
             if (Profile == null)
             {
                 Debug.LogWarning("Ocean Simulation has no profile assigned");
@@ -221,7 +245,6 @@ namespace Meta.Utilities.Environment
             var resolutionChanged = m_resolution != m_cachedResolution;
             if (resolutionChanged)
             {
-                Cleanup();
                 Initialize();
             }
 
@@ -354,8 +377,8 @@ namespace Meta.Utilities.Environment
         public Vector3 SampleDisplacementBilinear(float u, float v)
         {
             var n = m_resolution;
-            // OnEnable leaves m_cachedResolution at 0 until the first UpdateSimulation, so
-            // the buffer's own length is the only trustworthy witness to its shape here.
+            // A resolution edit can precede the next simulation tick; do not sample
+            // the old buffer with the new dimensions in that interval.
             if (!m_displacementResult.IsCreated || m_displacementResult.Length != n * n)
             {
                 return Vector3.zero;

@@ -18,6 +18,7 @@ namespace NavigationSim.UnityLayer.UI
 
         private GameObject _root;
         private Canvas _canvas;
+        private BridgePanelVisibility _visibility;
         private bool _built;
         private bool _openWhenReady;
 
@@ -37,7 +38,8 @@ namespace NavigationSim.UnityLayer.UI
         private void Start()
         {
             Build();
-            _canvas.enabled = false;
+            _visibility = new BridgePanelVisibility(_root);
+            _visibility.SetVisible(false);
             if (_openWhenReady)
             {
                 _openWhenReady = false;
@@ -89,16 +91,13 @@ namespace NavigationSim.UnityLayer.UI
 
             CachePanels();
             BridgeInstrumentCanvas.PlaceInFront(_root.transform, 1.45f, 0f, 0.05f);
-            _canvas.enabled = true;
+            _visibility.SetVisible(true);
             IsOpen = true;
         }
 
         public void Close()
         {
-            if (_canvas != null)
-            {
-                _canvas.enabled = false;
-            }
+            _visibility?.SetVisible(false);
 
             _openWhenReady = false;
             IsOpen = false;

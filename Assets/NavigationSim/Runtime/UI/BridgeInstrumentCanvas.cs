@@ -5,6 +5,57 @@ using UnityEngine.UI;
 
 namespace NavigationSim.UnityLayer.UI
 {
+    /// <summary>
+    /// Hides a prebuilt panel without deactivating its TMP/layout hierarchy. Nested
+    /// canvases and physics buttons must be switched off as well as the root Canvas.
+    /// Cache once after construction; preserve each component's state on every close.
+    /// </summary>
+    internal sealed class BridgePanelVisibility
+    {
+        private readonly Canvas[] _canvases;
+        private readonly Collider[] _colliders;
+        private readonly SimUiButton[] _buttons;
+        private readonly bool[] _canvasStates;
+        private readonly bool[] _colliderStates;
+        private readonly bool[] _buttonStates;
+        private bool _visible = true;
+
+        public BridgePanelVisibility(GameObject root)
+        {
+            _canvases = root.GetComponentsInChildren<Canvas>(true);
+            _colliders = root.GetComponentsInChildren<Collider>(true);
+            _buttons = root.GetComponentsInChildren<SimUiButton>(true);
+            _canvasStates = new bool[_canvases.Length];
+            _colliderStates = new bool[_colliders.Length];
+            _buttonStates = new bool[_buttons.Length];
+        }
+
+        public void SetVisible(bool visible)
+        {
+            if (_visible == visible) return;
+            _visible = visible;
+
+            for (int i = 0; i < _buttons.Length; i++)
+            {
+                if (_buttons[i] == null) continue;
+                if (!visible) _buttonStates[i] = _buttons[i].enabled;
+                _buttons[i].enabled = visible && _buttonStates[i];
+            }
+            for (int i = 0; i < _colliders.Length; i++)
+            {
+                if (_colliders[i] == null) continue;
+                if (!visible) _colliderStates[i] = _colliders[i].enabled;
+                _colliders[i].enabled = visible && _colliderStates[i];
+            }
+            for (int i = 0; i < _canvases.Length; i++)
+            {
+                if (_canvases[i] == null) continue;
+                if (!visible) _canvasStates[i] = _canvases[i].enabled;
+                _canvases[i].enabled = visible && _canvasStates[i];
+            }
+        }
+    }
+
     /// <summary>Shared builders for world-space bridge instrument canvases.</summary>
     public static class BridgeInstrumentCanvas
     {
